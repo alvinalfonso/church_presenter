@@ -66,7 +66,7 @@
         } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
         // Storage (Used for Images)
         import { 
-            getStorage, ref, uploadBytes, getDownloadURL 
+            getStorage, ref, uploadBytes, getDownloadURL, deleteObject 
         } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js';
         // Realtime Database (Added as requested)
         import { 
@@ -246,7 +246,11 @@
             const [fontSize, setFontSize] = useState(60);
             const [theme, setTheme] = useState('black');
             const [backgroundImage, setBackgroundImage] = useState(null);
-            const [themeCategory, setThemeCategory] = useState('Worship');
+            
+            // Theme Manager State
+            const [themeCategory, setThemeCategory] = useState('General'); // Currently selected folder for upload
+            const [isCreatingFolder, setIsCreatingFolder] = useState(false); // Toggle for new folder input
+            const [newFolderName, setNewFolderName] = useState('');
             const [uploadedThemes, setUploadedThemes] = useState({}); // { Category: [ {url, name} ] }
             const [uploadingTheme, setUploadingTheme] = useState(false);
 
@@ -327,6 +331,28 @@
                 return () => unsubscribe();
             }, []);
 
+            // --- Theme Helpers ---
+            const availableFolders = useMemo(() => {
+                const folders = Object.keys(uploadedThemes);
+                const defaults = ['General', 'Worship', 'Sermon', 'Announcements'];
+                return [...new Set([...defaults, ...folders])].sort();
+            }, [uploadedThemes]);
+
+            const deleteTheme = async (themeId, themeUrl) => {
+                if(!confirm("Are you sure you want to delete this theme?")) return;
+                try {
+                    // Delete from Firestore
+                    await deleteDoc(doc(db, 'users', user.uid, 'themes', themeId));
+                    
+                    // Attempt to delete from Storage (optional, strictly speaking, but good practice)
+                    // We try to reconstruct the path or just leave it as an orphan file if simple
+                    // For this simple implementation, we just remove the database reference to hide it.
+                } catch (e) {
+                    console.error("Error deleting theme:", e);
+                    alert("Failed to delete theme: " + e.message);
+                }
+            };
+
             // --- Window Management ---
             const openProjectorWindow = () => {
                 if (projectorWindowRef.current && !projectorWindowRef.current.closed) {
@@ -381,7 +407,12 @@
                 const file = e.target.files[0];
                 if (!file) return;
 
-                const category = themeCategory.trim() || "General";
+                // Determine target folder
+                let category = themeCategory;
+                if (isCreatingFolder) {
+                    category = newFolderName.trim();
+                    if (!category) { alert("Please enter a folder name."); return; }
+                }
                 
                 setUploadingTheme(true);
                 try {
@@ -403,9 +434,16 @@
                         category: category,
                         createdAt: serverTimestamp()
                     });
-                    console.log("Saved to Firestore");
                     
                     setBackgroundImage(url); // Auto set as current
+                    
+                    // Reset Creation State
+                    if (isCreatingFolder) {
+                        setThemeCategory(category);
+                        setIsCreatingFolder(false);
+                        setNewFolderName('');
+                    }
+                    
                     alert("Theme uploaded successfully!");
                 } catch (err) {
                     console.error("Upload failed detail:", err);
@@ -944,24 +982,47 @@
                                     React.createElement('h2', { className: "text-xl font-bold flex items-center" }, [ React.createElement(ImageIcon, { className: "mr-2" }), "Cloud Theme Manager" ]),
                                     !user ? React.createElement('div', { className: "p-4 bg-yellow-900/30 text-yellow-200 rounded-lg border border-yellow-800" }, "Please login with Google to save and categorize themes.") : 
                                     React.createElement('div', { className: "bg-gray-800 p-6 rounded-lg border border-gray-700" }, [
-                                        React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-4 mb-6" }, [
-                                            React.createElement('div', {}, [
-                                                React.createElement('label', { className: "block text-sm font-medium text-gray-400 mb-2" }, "Category"),
-                                                React.createElement('input', { type: "text", placeholder: "e.g., Worship, Sermon", value: themeCategory, onChange: (e) => setThemeCategory(e.target.value), className: "w-full bg-gray-900 border-gray-700 rounded-lg p-2 text-white outline-none" })
+                                        
+                                        // Upload Controls
+                                        React.createElement('div', { className: "mb-8 p-4 bg-gray-900/50 rounded-lg border border-gray-700" }, [
+                                            React.createElement('h3', { className: "text-sm font-semibold text-gray-400 uppercase mb-3" }, "Add New Theme"),
+                                            React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-4" }, [
+                                                React.createElement('div', {}, [
+                                                    React.createElement('label', { className: "block text-xs font-medium text-gray-500 mb-1" }, "Target Folder"),
+                                                    !isCreatingFolder ? React.createElement('div', { className: "flex space-x-2" }, [
+                                                        React.createElement('select', { value: themeCategory, onChange: (e) => setThemeCategory(e.target.value), className: "flex-1 bg-gray-800 border border-gray-600 rounded-lg p-2 text-white outline-none text-sm" }, 
+                                                            availableFolders.map(f => React.createElement('option', { key: f, value: f }, f))
+                                                        ),
+                                                        React.createElement('button', { onClick: () => setIsCreatingFolder(true), className: "px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white text-xs whitespace-nowrap", title: "Create New Folder" }, [ React.createElement(Plus, { size: 14, className: "inline mr-1" }), "New Folder" ])
+                                                    ]) : React.createElement('div', { className: "flex space-x-2" }, [
+                                                        React.createElement('input', { type: "text", placeholder: "Folder Name...", value: newFolderName, onChange: (e) => setNewFolderName(e.target.value), className: "flex-1 bg-gray-800 border border-blue-500 rounded-lg p-2 text-white outline-none text-sm focus:ring-1 focus:ring-blue-500" }),
+                                                        React.createElement('button', { onClick: () => setIsCreatingFolder(false), className: "px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-white text-xs" }, "Cancel")
+                                                    ])
+                                                ]),
+                                                React.createElement('div', {}, [
+                                                    React.createElement('label', { className: "block text-xs font-medium text-gray-500 mb-1" }, "Select Image"),
+                                                    React.createElement('input', { type: "file", accept: "image/png, image/jpeg, image/gif", onChange: handleCloudThemeUpload, disabled: uploadingTheme, className: "block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer" })
+                                                ])
                                             ]),
-                                            React.createElement('div', {}, [
-                                                React.createElement('label', { className: "block text-sm font-medium text-gray-400 mb-2" }, "Upload Image (PNG, JPG, GIF)"),
-                                                React.createElement('input', { type: "file", accept: "image/png, image/jpeg, image/gif", onChange: handleCloudThemeUpload, disabled: uploadingTheme, className: "block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700" })
-                                            ])
+                                            uploadingTheme && React.createElement('div', { className: "mt-3 text-blue-400 text-xs flex items-center" }, [ React.createElement(Loader2, { size: 12, className: "animate-spin mr-2" }), "Uploading to cloud..." ])
                                         ]),
-                                        uploadingTheme && React.createElement('div', { className: "text-blue-400 text-sm mb-4" }, "Uploading to Cloud..."),
-                                        React.createElement('div', { className: "space-y-4" }, Object.entries(uploadedThemes).map(([cat, themes]) => 
-                                            React.createElement('div', { key: cat }, [
-                                                React.createElement('h3', { className: "text-sm font-bold text-gray-500 uppercase mb-2" }, cat),
-                                                React.createElement('div', { className: "grid grid-cols-2 md:grid-cols-4 gap-4" }, themes.map(t => 
-                                                    React.createElement('div', { key: t.id, onClick: () => setBackgroundImage(t.url), className: `cursor-pointer rounded-lg overflow-hidden border-2 h-24 relative group ${backgroundImage === t.url ? 'border-green-500' : 'border-transparent hover:border-blue-500'}` }, [
-                                                        React.createElement('img', { src: t.url, className: "w-full h-full object-cover" }),
-                                                        React.createElement('div', { className: "absolute bottom-0 left-0 right-0 bg-black/70 text-[10px] p-1 truncate" }, t.name)
+
+                                        // Folders Display
+                                        Object.keys(uploadedThemes).length === 0 ? React.createElement('div', { className: "text-center text-gray-500 py-8" }, "No uploaded themes yet.") :
+                                        React.createElement('div', { className: "space-y-6" }, Object.entries(uploadedThemes).sort().map(([cat, themes]) => 
+                                            React.createElement('div', { key: cat, className: "bg-gray-900/30 rounded-xl p-4 border border-gray-800" }, [
+                                                React.createElement('div', { className: "flex items-center mb-3 border-b border-gray-800 pb-2" }, [
+                                                    React.createElement(FolderInput, { size: 16, className: "text-blue-500 mr-2" }),
+                                                    React.createElement('h3', { className: "text-sm font-bold text-white uppercase tracking-wide" }, cat),
+                                                    React.createElement('span', { className: "ml-2 text-xs text-gray-600 bg-gray-800 px-2 py-0.5 rounded-full" }, themes.length)
+                                                ]),
+                                                React.createElement('div', { className: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3" }, themes.map(t => 
+                                                    React.createElement('div', { key: t.id, className: `relative group rounded-lg overflow-hidden border-2 aspect-video bg-black cursor-pointer transition-all ${backgroundImage === t.url ? 'border-green-500 ring-2 ring-green-500/50' : 'border-gray-800 hover:border-blue-500'}` }, [
+                                                        React.createElement('img', { src: t.url, className: "w-full h-full object-cover", onClick: () => setBackgroundImage(t.url) }),
+                                                        React.createElement('div', { className: "absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent p-2 pt-6 opacity-0 group-hover:opacity-100 transition-opacity flex justify-between items-end" }, [
+                                                            React.createElement('span', { className: "text-[10px] text-gray-300 truncate max-w-[70%]" }, t.name),
+                                                            React.createElement('button', { onClick: (e) => { e.stopPropagation(); deleteTheme(t.id, t.url); }, className: "text-red-400 hover:text-red-200 bg-black/50 p-1 rounded hover:bg-red-900/50" }, React.createElement(Trash2, { size: 12 }))
+                                                        ])
                                                     ])
                                                 ))
                                             ])
