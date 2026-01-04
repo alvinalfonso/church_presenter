@@ -100,7 +100,7 @@
 
         // --- IndexedDB Helpers (Local Songs, Bibles, & Themes) ---
         const DB_NAME = 'ChurchPresenterDB';
-        const DB_VERSION = 3; // Incremented for themes
+        const DB_VERSION = 3; 
         
         const initDB = () => {
             return new Promise((resolve, reject) => {
@@ -702,82 +702,38 @@
 
                     const books = {};
                     
-                    // --- Enhanced Parsing Logic for Numbered Books ---
-                    const testaments = xmlDoc.querySelectorAll("testament, TESTAMENT");
+                    // --- REVISED LOGIC: Trust attribute 'number' first ---
+                    const allBooks = xmlDoc.querySelectorAll("book, BOOK, BIBLEBOOK, biblebook");
                     
-                    if (testaments.length > 0) {
-                        // Parse by Testament to handle numbering
-                        testaments.forEach((t, tIndex) => {
-                            const tName = t.getAttribute('name') || (tIndex === 0 ? "Old" : "New");
-                            const isNewTestament = tName.toLowerCase().includes('new');
-                            
-                            // Get books inside this testament
-                            const tBooks = t.querySelectorAll("book, BOOK, BIBLEBOOK, biblebook");
-                            tBooks.forEach(b => {
-                                let bName = b.getAttribute("bname") || b.getAttribute("name") || b.getAttribute("id");
-                                const bNum = parseInt(b.getAttribute("number") || b.getAttribute("n") || b.getAttribute("bnumber"));
-                                
-                                // Map Number to Name if name is missing
-                                if (!bName && !isNaN(bNum)) {
-                                    // 0-38 = OT (Genesis to Malachi), 39-65 = NT (Matthew to Rev)
-                                    // If Old Testament: Index = Num - 1
-                                    // If New Testament: Index = 39 + (Num - 1)
-                                    if (isNewTestament) {
-                                        bName = BIBLE_BOOKS[39 + (bNum - 1)];
-                                    } else {
-                                        bName = BIBLE_BOOKS[bNum - 1];
-                                    }
-                                }
+                    allBooks.forEach(b => {
+                        let bName = b.getAttribute("bname") || b.getAttribute("name") || b.getAttribute("id");
+                        const bNum = parseInt(b.getAttribute("number") || b.getAttribute("n") || b.getAttribute("bnumber"));
+                        
+                        // If book name is missing but we have a number, map it using standard BIBLE_BOOKS index
+                        // Your XML uses absolute numbering (40 = Matthew), so we subtract 1 for array index
+                        if (!bName && !isNaN(bNum) && bNum > 0 && bNum <= 66) {
+                            bName = BIBLE_BOOKS[bNum - 1];
+                        }
 
-                                if (bName && BIBLE_BOOKS.includes(bName)) {
-                                    books[bName] = {};
-                                    const chapters = b.querySelectorAll("chapter, CHAPTER, c, C");
-                                    chapters.forEach(c => {
-                                        const cNum = c.getAttribute("number") || c.getAttribute("n") || c.getAttribute("cnumber");
-                                        if (cNum) {
-                                            books[bName][cNum] = {};
-                                            const verses = c.querySelectorAll("verse, VERSE, v, V");
-                                            verses.forEach(v => {
-                                                const vNum = v.getAttribute("number") || v.getAttribute("n") || v.getAttribute("vnumber");
-                                                if (vNum) books[bName][cNum][vNum] = v.textContent;
-                                            });
-                                        }
+                        if (bName) {
+                            books[bName] = {};
+                            const chapters = b.querySelectorAll("chapter, CHAPTER, c, C");
+                            chapters.forEach(c => {
+                                const cNum = c.getAttribute("number") || c.getAttribute("n") || c.getAttribute("cnumber");
+                                if (cNum) {
+                                    books[bName][cNum] = {};
+                                    const verses = c.querySelectorAll("verse, VERSE, v, V");
+                                    verses.forEach(v => {
+                                        const vNum = v.getAttribute("number") || v.getAttribute("n") || v.getAttribute("vnumber");
+                                        if (vNum) books[bName][cNum][vNum] = v.textContent;
                                     });
                                 }
                             });
-                        });
-                    } else {
-                        // Fallback: Flat Structure (assuming standard numbering 1-66 if names missing)
-                        const allBooks = xmlDoc.querySelectorAll("book, BOOK, BIBLEBOOK, biblebook");
-                        allBooks.forEach(b => {
-                             let bName = b.getAttribute("bname") || b.getAttribute("name") || b.getAttribute("id");
-                             const bNum = parseInt(b.getAttribute("number") || b.getAttribute("n"));
-                             
-                             if (!bName && !isNaN(bNum)) {
-                                 // Assume continuous 1-66
-                                 bName = BIBLE_BOOKS[bNum - 1];
-                             }
-                             
-                             if (bName) {
-                                books[bName] = {};
-                                const chapters = b.querySelectorAll("chapter, CHAPTER, c, C");
-                                chapters.forEach(c => {
-                                    const cNum = c.getAttribute("number") || c.getAttribute("n");
-                                    if (cNum) {
-                                        books[bName][cNum] = {};
-                                        const verses = c.querySelectorAll("verse, VERSE, v, V");
-                                        verses.forEach(v => {
-                                            const vNum = v.getAttribute("number") || v.getAttribute("n");
-                                            if (vNum) books[bName][cNum][vNum] = v.textContent;
-                                        });
-                                    }
-                                });
-                             }
-                        });
-                    }
+                        }
+                    });
 
                     if (Object.keys(books).length === 0) {
-                        throw new Error("No recognized books found. Ensure proper XML format.");
+                        throw new Error("No recognized books found. Ensure XML uses 'number' 1-66 or standard names.");
                     }
 
                     const newBible = { id: `local-${Date.now()}`, name: bibleName, books: books, type: 'local' };
