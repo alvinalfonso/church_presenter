@@ -889,9 +889,10 @@
                             React.createElement('div', { className: activeTab === 'bible' ? "space-y-6 max-w-2xl mx-auto w-full animate-in fade-in duration-200" : "hidden-tab" }, [
                                 React.createElement('div', { className: "grid grid-cols-2 gap-4" }, [
                                     React.createElement('div', { className: "col-span-2 sm:col-span-1" }, [
-                                        React.createElement('label', { className: "block text-sm font-medium text-gray-400 mb-1" }, "Book Search"),
-                                        React.createElement('input', { list: "bible-books", value: bibleBook, onChange: (e) => setBibleBook(e.target.value), className: "w-full bg-gray-800 border-gray-700 rounded-lg text-white p-2 outline-none", placeholder: "Type to search..." }),
-                                        React.createElement('datalist', { id: "bible-books" }, BIBLE_BOOKS.map(b => React.createElement('option', { key: b, value: b })))
+                                        React.createElement('label', { className: "block text-sm font-medium text-gray-400 mb-1" }, "Select Book"),
+                                        React.createElement('select', { value: bibleBook, onChange: (e) => setBibleBook(e.target.value), className: "w-full bg-gray-800 border-gray-700 rounded-lg text-white p-2 outline-none cursor-pointer" }, 
+                                            BIBLE_BOOKS.map(b => React.createElement('option', { key: b, value: b }, b))
+                                        )
                                     ]),
                                     React.createElement('div', { className: "grid grid-cols-2 gap-2" }, [
                                         React.createElement('div', {}, [ React.createElement('label', { className: "block text-sm font-medium text-gray-400 mb-1" }, "Chapter"), React.createElement('input', { type: "number", value: bibleChapter, onChange: (e) => setBibleChapter(e.target.value), className: "w-full bg-gray-800 border-gray-700 rounded-lg text-white p-2 outline-none" }) ]),
