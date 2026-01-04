@@ -49,6 +49,17 @@
                 -1px  1px 0 var(--tw-outline-color, #000),
                  1px  1px 0 var(--tw-outline-color, #000);
         }
+
+        /* Custom Editor Styles */
+        .editor-element { position: absolute; user-select: none; box-sizing: border-box; }
+        .editor-element:hover { outline: 1px dashed rgba(255,255,255,0.3); }
+        .editor-element.selected { outline: 2px dashed #3b82f6; z-index: 10; cursor: move; }
+        .resize-handle {
+            position: absolute; bottom: -6px; right: -6px; width: 12px; height: 12px;
+            background-color: #3b82f6; border: 2px solid white; border-radius: 50%;
+            cursor: nwse-resize; z-index: 20; display: none;
+        }
+        .editor-element.selected .resize-handle { display: block; }
     </style>
 </head>
 <body>
@@ -65,7 +76,7 @@
             FolderInput, FileText, Database, Download, List, Image as ImageIcon,
             ArrowUp, ArrowDown, LogIn, LogOut, Upload, Cloud, Archive, Share2,
             FilePlus, Copy, HardDrive, Move, AlignLeft, AlignCenter, AlignRight,
-            Type as TypeIcon, Palette
+            Type as TypeIcon, Palette, MousePointer2, Scaling
         } from 'https://esm.sh/lucide-react@0.292.0';
         
         // Firebase Imports (Stable Version)
@@ -180,7 +191,7 @@
                     .center-content { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; height: 100%; padding: 4rem; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }
                     .fade-in { animation: fadeIn 0.5s ease-out forwards; }
                     @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-                    .custom-element { position: absolute; white-space: pre-wrap; }
+                    .custom-element { position: absolute; white-space: pre-wrap; word-wrap: break-word; }
                 </style>
             </head>
             <body><div id="slide-container"></div></body>
@@ -208,23 +219,40 @@
                 React.createElement('button', { key: 'close-btn', onClick: onClose, className: "absolute top-4 right-4 p-2 bg-gray-800/50 rounded-full hover:bg-gray-700/50 text-white transition-all opacity-0 hover:opacity-100 z-50" }, React.createElement(Minimize2, { size: 24 })),
                 
                 // Content Rendering logic
-                content.type === 'custom' && content.styles 
-                ? React.createElement('div', { key: 'custom-content', className: "w-full h-full relative" }, 
-                    React.createElement('div', { 
-                        className: "absolute fade-in",
-                        style: {
-                            left: `${content.styles.x}%`,
-                            top: `${content.styles.y}%`,
-                            transform: 'translate(-50%, -50%)',
-                            color: content.styles.color,
-                            textAlign: content.styles.align,
-                            fontFamily: content.styles.font === 'serif' ? 'Merriweather, serif' : content.styles.font === 'mono' ? 'monospace' : 'Inter, sans-serif',
-                            fontSize: `${fontSize}px`, 
-                            textShadow: content.styles.outline ? 
-                                `-1px -1px 0 ${content.styles.outline}, 1px -1px 0 ${content.styles.outline}, -1px 1px 0 ${content.styles.outline}, 1px 1px 0 ${content.styles.outline}` 
-                                : '2px 2px 4px rgba(0,0,0,0.5)'
-                        }
-                    }, content.text)
+                content.type === 'custom'
+                ? (content.elements ? 
+                    // New Multi-Element Rendering
+                    React.createElement('div', { key: 'custom-multi', className: "w-full h-full relative" },
+                        content.elements.map(el => {
+                             const s = el.styles;
+                             const shadow = s.outline ? `-1px -1px 0 ${s.outline}, 1px -1px 0 ${s.outline}, -1px 1px 0 ${s.outline}, 1px 1px 0 ${s.outline}` : '2px 2px 4px rgba(0,0,0,0.5)';
+                             const font = s.font === 'serif' ? 'Merriweather, serif' : s.font === 'mono' ? 'monospace' : 'Inter, sans-serif';
+                             return React.createElement('div', {
+                                key: el.id,
+                                className: "custom-element fade-in",
+                                style: {
+                                    left: `${el.x}%`, top: `${el.y}%`, width: `${el.w}%`, height: el.h ? `${el.h}%` : 'auto',
+                                    color: s.color, textAlign: s.align, fontFamily: font, 
+                                    fontSize: `${s.fontSize || fontSize}px`, textShadow: shadow
+                                }
+                             }, el.text);
+                        })
+                    )
+                    : // Legacy Single Element Rendering
+                    React.createElement('div', { key: 'custom-single', className: "w-full h-full relative" }, 
+                        content.styles ? React.createElement('div', { 
+                            className: "absolute fade-in",
+                            style: {
+                                left: `${content.styles.x}%`, top: `${content.styles.y}%`, transform: 'translate(-50%, -50%)',
+                                color: content.styles.color, textAlign: content.styles.align,
+                                fontFamily: content.styles.font === 'serif' ? 'Merriweather, serif' : content.styles.font === 'mono' ? 'monospace' : 'Inter, sans-serif',
+                                fontSize: `${fontSize}px`, 
+                                textShadow: content.styles.outline ? `-1px -1px 0 ${content.styles.outline}, 1px -1px 0 ${content.styles.outline}` : '2px 2px 4px rgba(0,0,0,0.5)'
+                            }
+                        }, content.text) : React.createElement('div', { className: "w-full h-full flex items-center justify-center p-8 text-center" }, 
+                            React.createElement('h1', { className: "font-sans font-bold", style: { fontSize: `${fontSize}px` } }, content.text)
+                        )
+                    )
                   )
                 : React.createElement('div', { key: 'std-content', className: "w-full h-full flex flex-col items-center justify-center p-8 text-center space-y-8 animate-in fade-in duration-500 drop-shadow-lg" }, [
                     content.type === 'bible' && React.createElement(React.Fragment, null, [
@@ -234,8 +262,7 @@
                     content.type === 'song' && React.createElement('div', { className: "flex flex-col h-full justify-center" }, [
                         React.createElement('h1', { className: "font-sans font-bold leading-tight whitespace-pre-wrap", style: { fontSize: `${fontSize}px` } }, content.text),
                         content.title && React.createElement('div', { className: "fixed bottom-8 right-8 text-xl opacity-60 font-sans" }, content.title)
-                    ]),
-                    content.type === 'custom' && !content.styles && React.createElement('h1', { className: "font-sans font-bold leading-tight whitespace-pre-wrap", style: { fontSize: `${fontSize}px` } }, content.text)
+                    ])
                 ]),
                 React.createElement('div', { key: 'footer', className: "absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white/20 text-xs font-mono" }, "Press ESC to close")
             ]);
@@ -274,7 +301,7 @@
             const [biblePreview, setBiblePreview] = useState(null);
             const [loadingBible, setLoadingBible] = useState(false);
             const [cloudBibles, setCloudBibles] = useState([]); 
-            const [bibleCache, setBibleCache] = useState({}); // Cache loaded book content
+            const [bibleCache, setBibleCache] = useState({}); 
 
             // Song
             const [songs, setSongs] = useState([]);
@@ -289,13 +316,16 @@
             const [isFetchingLyrics, setIsFetchingLyrics] = useState(false);
             const [fetchStatus, setFetchStatus] = useState('');
             
-            // Custom Slide
-            const [customText, setCustomText] = useState('Enter text here...');
-            const [customStyles, setCustomStyles] = useState({
-                align: 'center', color: '#ffffff', outline: '#000000', font: 'sans', x: 50, y: 50
-            });
-            const [isDragging, setIsDragging] = useState(false);
-            const customStageRef = useRef(null);
+            // --- Custom Slide (Advanced) ---
+            const [customElements, setCustomElements] = useState([{
+                id: Date.now(),
+                text: "Click to Edit\nDouble click toolbar to format",
+                x: 10, y: 30, w: 80, h: 40,
+                styles: { color: '#ffffff', outline: '#000000', font: 'sans', align: 'center', fontSize: 60 }
+            }]);
+            const [selectedElementId, setSelectedElementId] = useState(customElements[0].id);
+            const [dragMode, setDragMode] = useState(null); // 'move' | 'resize' | null
+            const stageRef = useRef(null);
             
             const [importStatus, setImportStatus] = useState('');
             const projectorWindowRef = useRef(null);
@@ -318,13 +348,12 @@
                         onSnapshot(q, (snap) => {
                             setSavedPrograms(snap.docs.map(d => ({id: d.id, ...d.data()})));
                         });
-                        refreshCloudBibles(); // Load cloud bibles only when authenticated
+                        refreshCloudBibles(); 
                     } else {
                         setSavedPrograms([]);
-                        setCloudBibles([]); // Clear cloud data on logout
+                        setCloudBibles([]); 
                     }
                 });
-                // Note: removed global refreshCloudBibles() to avoid permission errors
                 refreshLocalSongs();
                 refreshLocalThemes();
                 return () => unsubscribe();
@@ -401,7 +430,17 @@
                 } else if (content.type === 'song') {
                     html = `<div class="center-content"><h1 class="font-sans font-bold leading-tight whitespace-pre-wrap fade-in" style="font-size: ${fontSize}px">${content.text}</h1>${content.title ? `<div class="fixed bottom-8 right-8 text-xl opacity-40 font-sans fade-in">${content.title}</div>` : ''}</div>`;
                 } else if (content.type === 'custom') {
-                    if (content.styles) {
+                    if (content.elements) {
+                         // New Multi-element rendering
+                         html = content.elements.map(el => {
+                             const s = el.styles;
+                             const shadow = s.outline ? `-1px -1px 0 ${s.outline}, 1px -1px 0 ${s.outline}, -1px 1px 0 ${s.outline}, 1px 1px 0 ${s.outline}` : '2px 2px 4px rgba(0,0,0,0.5)';
+                             const font = s.font === 'serif' ? 'Merriweather, serif' : s.font === 'mono' ? 'monospace' : 'Inter, sans-serif';
+                             // Use Left/Top % positioning
+                             return `<div class="custom-element fade-in" style="left:${el.x}%; top:${el.y}%; width:${el.w}%; color:${s.color}; text-align:${s.align}; font-family:${font}; font-size:${s.fontSize || fontSize}px; text-shadow:${shadow};">${el.text}</div>`;
+                         }).join('');
+                    } else if (content.styles) {
+                        // Legacy single element
                         const s = content.styles;
                         const shadow = s.outline ? `-1px -1px 0 ${s.outline}, 1px -1px 0 ${s.outline}, -1px 1px 0 ${s.outline}, 1px 1px 0 ${s.outline}` : '2px 2px 4px rgba(0,0,0,0.5)';
                         const font = s.font === 'serif' ? 'Merriweather, serif' : s.font === 'mono' ? 'monospace' : 'Inter, sans-serif';
@@ -548,7 +587,7 @@
 
             // --- Cloud Bible Functions ---
             const refreshCloudBibles = async () => {
-                if (!auth.currentUser) return; // Only fetch if user is authenticated to avoid permission errors
+                if (!auth.currentUser) return; 
                 try {
                     const q = query(collection(db, 'shared_bibles'));
                     const querySnapshot = await getDocs(q);
@@ -567,15 +606,11 @@
 
             const fetchVerse = async (book = bibleBook, chapter = bibleChapter, verse = bibleVerse) => {
                 setLoadingBible(true);
-                
-                // Cloud Bible Fetching Logic
                 const cloudBible = cloudBibles.find(b => b.id === bibleVersion);
                 if (cloudBible) {
-                    // Normalize Key
                     const cacheKey = `${bibleVersion}_${book}`;
                     let bookContent = bibleCache[cacheKey];
 
-                    // Check Cache or Fetch from Subcollection
                     if (!bookContent) {
                         try {
                             const bookRef = doc(db, 'shared_bibles', bibleVersion, 'books', book);
@@ -584,7 +619,6 @@
                                 bookContent = bookSnap.data().content;
                                 setBibleCache(prev => ({ ...prev, [cacheKey]: bookContent }));
                             } else {
-                                // Try finding by close match if exact failed? (Simple exact match for now)
                                 setBiblePreview({ type: 'bible', text: "Book not found in this Cloud Bible.", reference: "Error", version: cloudBible.name });
                                 setLoadingBible(false);
                                 return;
@@ -612,7 +646,6 @@
                     }
                 }
 
-                // API Fallback
                 try {
                     const query = `${book}+${chapter}:${verse}`;
                     const response = await fetch(`https://bible-api.com/${query}?translation=${bibleVersion}`);
@@ -693,47 +726,82 @@
                 reader.readAsText(file);
             };
 
-            // --- Custom Slide & Dragging Logic ---
-            const handleDragStart = (e) => setIsDragging(true);
-
-            const handleDragMove = (e) => {
-                if (!isDragging || !customStageRef.current) return;
-                const rect = customStageRef.current.getBoundingClientRect();
-                const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
-                const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
-                // Calculate position relative to container
-                let x = clientX - rect.left;
-                let y = clientY - rect.top;
-                // Convert to percentage
-                let xPercent = (x / rect.width) * 100;
-                let yPercent = (y / rect.height) * 100;
-                // Constrain
-                xPercent = Math.max(0, Math.min(100, xPercent));
-                yPercent = Math.max(0, Math.min(100, yPercent));
-                setCustomStyles(prev => ({ ...prev, x: xPercent, y: yPercent }));
+            // --- Advanced Custom Slide Functions ---
+            const addCustomElement = () => {
+                const newEl = {
+                    id: Date.now(),
+                    text: "New Text Box",
+                    x: 10, y: 10, w: 30, h: 20,
+                    styles: { color: '#ffffff', outline: '#000000', font: 'sans', align: 'left', fontSize: 60 }
+                };
+                setCustomElements(prev => [...prev, newEl]);
+                setSelectedElementId(newEl.id);
             };
 
-            const handleDragEnd = () => setIsDragging(false);
+            const deleteSelectedElement = () => {
+                if (customElements.length <= 1) { alert("Slide must have at least one element."); return; }
+                setCustomElements(prev => prev.filter(el => el.id !== selectedElementId));
+                setSelectedElementId(customElements[0].id); // Select first fallback
+            };
 
+            const updateSelectedElement = (updates) => {
+                setCustomElements(prev => prev.map(el => el.id === selectedElementId ? { ...el, ...updates } : el));
+            };
+
+            const updateSelectedStyle = (styleKey, value) => {
+                setCustomElements(prev => prev.map(el => el.id === selectedElementId ? { ...el, styles: { ...el.styles, [styleKey]: value } } : el));
+            };
+
+            // Drag and Resize Handlers
+            const handleStageMouseDown = (e, elId, type) => {
+                e.stopPropagation();
+                setSelectedElementId(elId);
+                setDragMode(type);
+                // Store initial mouse pos and element state
+                const el = customElements.find(e => e.id === elId);
+                stageRef.current.dragStart = { 
+                    mx: e.clientX, my: e.clientY, 
+                    elX: el.x, elY: el.y, elW: el.w, elH: el.h 
+                };
+            };
+
+            const handleStageMouseMove = (e) => {
+                if (!dragMode || !stageRef.current) return;
+                const { mx, my, elX, elY, elW, elH } = stageRef.current.dragStart;
+                const stageRect = stageRef.current.getBoundingClientRect();
+                
+                // Delta in Percentages
+                const dx = ((e.clientX - mx) / stageRect.width) * 100;
+                const dy = ((e.clientY - my) / stageRect.height) * 100;
+
+                if (dragMode === 'move') {
+                    updateSelectedElement({ x: elX + dx, y: elY + dy });
+                } else if (dragMode === 'resize') {
+                    updateSelectedElement({ w: Math.max(5, elW + dx), h: Math.max(5, elH + dy) });
+                }
+            };
+
+            const handleStageMouseUp = () => {
+                setDragMode(null);
+            };
+            
+            // Global Mouse Listeners for Drag/Resize (attached to window)
             useEffect(() => {
-                if (isDragging) {
-                    window.addEventListener('mousemove', handleDragMove);
-                    window.addEventListener('mouseup', handleDragEnd);
-                    window.addEventListener('touchmove', handleDragMove);
-                    window.addEventListener('touchend', handleDragEnd);
+                if (dragMode) {
+                    window.addEventListener('mousemove', handleStageMouseMove);
+                    window.addEventListener('mouseup', handleStageMouseUp);
                 } else {
-                    window.removeEventListener('mousemove', handleDragMove);
-                    window.removeEventListener('mouseup', handleDragEnd);
-                    window.removeEventListener('touchmove', handleDragMove);
-                    window.removeEventListener('touchend', handleDragEnd);
+                    window.removeEventListener('mousemove', handleStageMouseMove);
+                    window.removeEventListener('mouseup', handleStageMouseUp);
                 }
                 return () => {
-                    window.removeEventListener('mousemove', handleDragMove);
-                    window.removeEventListener('mouseup', handleDragEnd);
-                    window.removeEventListener('touchmove', handleDragMove);
-                    window.removeEventListener('touchend', handleDragEnd);
+                    window.removeEventListener('mousemove', handleStageMouseMove);
+                    window.removeEventListener('mouseup', handleStageMouseUp);
                 };
-            }, [isDragging]);
+            }, [dragMode, customElements]);
+
+            // Get currently selected element object
+            const selectedElement = customElements.find(el => el.id === selectedElementId) || customElements[0];
 
             // --- Imports Logic ---
             const handleBibleImportToCloud = async (e) => {
@@ -790,14 +858,12 @@
 
                     if (Object.keys(books).length === 0) throw new Error("No recognized books found.");
 
-                    // 1. Create Main Doc (Metadata only)
                     const bibleRef = await addDoc(collection(db, 'shared_bibles'), {
                         name: bibleName,
                         uploadedBy: user.email,
                         uploadedAt: serverTimestamp()
                     });
 
-                    // 2. Batch Upload Books (Subcollection) to avoid 1MB limit
                     const batch = writeBatch(db);
                     let opCount = 0;
                     
@@ -946,7 +1012,7 @@
                                                 React.createElement('span', { className: "px-2 py-0.5 rounded text-[10px] uppercase font-bold mr-3 " + (item.type === 'bible' ? 'bg-yellow-900 text-yellow-200' : item.type === 'song' ? 'bg-blue-900 text-blue-200' : 'bg-purple-900 text-purple-200') }, item.type),
                                                 React.createElement('span', { className: "font-medium" }, item.desc || (item.title ? item.title : "Custom Slide"))
                                             ]),
-                                            React.createElement('div', { className: "text-sm text-gray-400 mt-1 truncate max-w-xl" }, item.text.substring(0, 100) + "...")
+                                            React.createElement('div', { className: "text-sm text-gray-400 mt-1 truncate max-w-xl" }, item.text ? item.text.substring(0, 100) + "..." : (item.elements ? item.elements.map(e => e.text).join(' ').substring(0, 100) + "..." : ""))
                                         ]),
                                         React.createElement('div', { className: "flex space-x-2" }, [
                                             React.createElement('button', { onClick: () => projectContent(item), className: "px-4 py-2 bg-green-700 hover:bg-green-600 text-white rounded-lg text-sm font-medium flex items-center" }, [ React.createElement(Play, { size: 16, className: "mr-2" }), "Live" ]),
@@ -1037,79 +1103,103 @@
                                 ])
                             ]),
 
-                            // CUSTOM TAB
+                            // CUSTOM TAB (REVISED FOR MULTIPLE ELEMENTS + RESIZE)
                             React.createElement('div', { className: activeTab === 'custom' ? "max-w-4xl mx-auto w-full space-y-4 animate-in fade-in duration-200 h-full flex flex-col" : "hidden-tab" }, [
-                                // Toolbar
+                                // Top Toolbar
                                 React.createElement('div', { className: "bg-gray-800 p-2 rounded-lg border border-gray-700 flex items-center space-x-4 overflow-x-auto" }, [
+                                    React.createElement('div', { className: "flex items-center space-x-2 border-r border-gray-600 pr-4" }, [
+                                        React.createElement('button', { onClick: addCustomElement, className: "flex items-center px-3 py-1 bg-green-700 hover:bg-green-600 text-white rounded text-sm" }, [ React.createElement(Plus, { size: 14, className: "mr-1" }), "Text Box" ]),
+                                        React.createElement('button', { onClick: deleteSelectedElement, className: "p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-900/20 rounded" }, React.createElement(Trash2, { size: 16 }))
+                                    ]),
                                     React.createElement('div', { className: "flex items-center space-x-1 border-r border-gray-600 pr-4" }, [
-                                        React.createElement('button', { onClick: () => setCustomStyles(s => ({...s, align: 'left'})), className: `p-2 rounded ${customStyles.align === 'left' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}` }, React.createElement(AlignLeft, { size: 18 })),
-                                        React.createElement('button', { onClick: () => setCustomStyles(s => ({...s, align: 'center'})), className: `p-2 rounded ${customStyles.align === 'center' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}` }, React.createElement(AlignCenter, { size: 18 })),
-                                        React.createElement('button', { onClick: () => setCustomStyles(s => ({...s, align: 'right'})), className: `p-2 rounded ${customStyles.align === 'right' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}` }, React.createElement(AlignRight, { size: 18 })),
+                                        React.createElement('button', { onClick: () => updateSelectedStyle('align', 'left'), className: `p-2 rounded ${selectedElement.styles.align === 'left' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}` }, React.createElement(AlignLeft, { size: 18 })),
+                                        React.createElement('button', { onClick: () => updateSelectedStyle('align', 'center'), className: `p-2 rounded ${selectedElement.styles.align === 'center' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}` }, React.createElement(AlignCenter, { size: 18 })),
+                                        React.createElement('button', { onClick: () => updateSelectedStyle('align', 'right'), className: `p-2 rounded ${selectedElement.styles.align === 'right' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}` }, React.createElement(AlignRight, { size: 18 })),
                                     ]),
                                     React.createElement('div', { className: "flex items-center space-x-2 border-r border-gray-600 pr-4" }, [
                                         React.createElement(TypeIcon, { size: 18, className: "text-gray-400" }),
-                                        React.createElement('select', { value: customStyles.font, onChange: (e) => setCustomStyles(s => ({...s, font: e.target.value})), className: "bg-gray-900 border border-gray-700 text-white text-sm rounded p-1" }, [
+                                        React.createElement('select', { value: selectedElement.styles.font, onChange: (e) => updateSelectedStyle('font', e.target.value), className: "bg-gray-900 border border-gray-700 text-white text-sm rounded p-1" }, [
                                             React.createElement('option', { value: "sans" }, "Sans Serif"),
                                             React.createElement('option', { value: "serif" }, "Serif"),
                                             React.createElement('option', { value: "mono" }, "Monospace"),
-                                        ])
+                                        ]),
+                                        React.createElement('input', { type: "number", min: "10", max: "200", value: selectedElement.styles.fontSize || fontSize, onChange: (e) => updateSelectedStyle('fontSize', e.target.value), className: "w-16 bg-gray-900 border border-gray-700 text-white text-sm rounded p-1" }),
                                     ]),
-                                    React.createElement('div', { className: "flex items-center space-x-2 border-r border-gray-600 pr-4" }, [
+                                    React.createElement('div', { className: "flex items-center space-x-2" }, [
                                         React.createElement(Palette, { size: 18, className: "text-gray-400" }),
                                         React.createElement('div', { className: "flex items-center space-x-1" }, [
                                             React.createElement('span', { className: "text-xs text-gray-500" }, "Color"),
-                                            React.createElement('input', { type: "color", value: customStyles.color, onChange: (e) => setCustomStyles(s => ({...s, color: e.target.value})), className: "w-6 h-6 rounded cursor-pointer bg-transparent" })
+                                            React.createElement('input', { type: "color", value: selectedElement.styles.color, onChange: (e) => updateSelectedStyle('color', e.target.value), className: "w-6 h-6 rounded cursor-pointer bg-transparent" })
                                         ]),
                                         React.createElement('div', { className: "flex items-center space-x-1" }, [
                                             React.createElement('span', { className: "text-xs text-gray-500" }, "Outline"),
-                                            React.createElement('input', { type: "color", value: customStyles.outline, onChange: (e) => setCustomStyles(s => ({...s, outline: e.target.value})), className: "w-6 h-6 rounded cursor-pointer bg-transparent" })
+                                            React.createElement('input', { type: "color", value: selectedElement.styles.outline, onChange: (e) => updateSelectedStyle('outline', e.target.value), className: "w-6 h-6 rounded cursor-pointer bg-transparent" })
                                         ])
-                                    ]),
-                                    React.createElement('div', { className: "text-xs text-gray-400 flex items-center" }, [
-                                        React.createElement(Move, { size: 14, className: "mr-1" }),
-                                        "Drag text to position"
                                     ])
                                 ]),
 
-                                // Editor Stage (Simulated Aspect Ratio)
+                                // Editor Stage
                                 React.createElement('div', { className: "flex-1 bg-black rounded-lg border border-gray-700 relative overflow-hidden flex items-center justify-center select-none" }, [
                                     React.createElement('div', { 
-                                        ref: customStageRef,
+                                        ref: stageRef,
                                         className: "relative bg-gray-900 w-full aspect-video border border-gray-800 shadow-2xl overflow-hidden",
                                         style: { backgroundImage: backgroundImage ? `url("${backgroundImage}")` : 'none', backgroundSize: 'cover', backgroundPosition: 'center' }
                                     }, [
                                         !backgroundImage && React.createElement('div', { className: "absolute inset-0 flex items-center justify-center pointer-events-none opacity-20" }, React.createElement('span', { className: "text-6xl font-bold text-gray-700" }, "16:9 PREVIEW")),
-                                        // Draggable Element
-                                        React.createElement('div', {
-                                            className: `absolute cursor-move select-none p-2 border-2 ${isDragging ? 'border-blue-500 border-dashed' : 'border-transparent hover:border-blue-500/50'}`,
-                                            onMouseDown: handleDragStart,
-                                            onTouchStart: handleDragStart,
-                                            style: {
-                                                left: `${customStyles.x}%`,
-                                                top: `${customStyles.y}%`,
-                                                transform: 'translate(-50%, -50%)',
-                                                color: customStyles.color,
-                                                textAlign: customStyles.align,
-                                                fontFamily: customStyles.font === 'serif' ? 'Merriweather, serif' : customStyles.font === 'mono' ? 'monospace' : 'Inter, sans-serif',
-                                                fontSize: `${fontSize * 0.5}px`, 
-                                                textShadow: `-1px -1px 0 ${customStyles.outline}, 1px -1px 0 ${customStyles.outline}, -1px 1px 0 ${customStyles.outline}, 1px 1px 0 ${customStyles.outline}`
-                                            }
-                                        }, customText)
+                                        // Render Elements
+                                        customElements.map(el => {
+                                            const s = el.styles;
+                                            const isSelected = el.id === selectedElementId;
+                                            const shadow = s.outline ? `-1px -1px 0 ${s.outline}, 1px -1px 0 ${s.outline}, -1px 1px 0 ${s.outline}, 1px 1px 0 ${s.outline}` : 'none';
+                                            const font = s.font === 'serif' ? 'Merriweather, serif' : s.font === 'mono' ? 'monospace' : 'Inter, sans-serif';
+                                            
+                                            return React.createElement('div', {
+                                                key: el.id,
+                                                className: `editor-element ${isSelected ? 'selected' : ''}`,
+                                                style: {
+                                                    left: `${el.x}%`,
+                                                    top: `${el.y}%`,
+                                                    width: `${el.w}%`,
+                                                    height: el.h ? `${el.h}%` : 'auto',
+                                                    color: s.color,
+                                                    textAlign: s.align,
+                                                    fontFamily: font,
+                                                    fontSize: `${(s.fontSize || fontSize) * 0.5}px`, // Scale down for preview
+                                                    textShadow: shadow,
+                                                    whiteSpace: 'pre-wrap',
+                                                    wordWrap: 'break-word'
+                                                },
+                                                onMouseDown: (e) => handleStageMouseDown(e, el.id, 'move')
+                                            }, [
+                                                el.text,
+                                                // Resize Handle (Only visible when selected via CSS)
+                                                React.createElement('div', { 
+                                                    className: "resize-handle",
+                                                    onMouseDown: (e) => handleStageMouseDown(e, el.id, 'resize')
+                                                })
+                                            ]);
+                                        })
                                     ])
                                 ]),
 
-                                // Text Input
-                                React.createElement('textarea', { 
-                                    value: customText, 
-                                    onChange: (e) => setCustomText(e.target.value), 
-                                    placeholder: "Type your text here...", 
-                                    className: "w-full h-24 bg-gray-800 border-gray-700 rounded-lg text-white p-4 outline-none resize-none" 
-                                }),
+                                // Text Input for Selected Element
+                                React.createElement('div', { className: "space-y-2" }, [
+                                    React.createElement('div', { className: "flex justify-between items-center" }, [
+                                        React.createElement('span', { className: "text-xs text-gray-500 font-medium" }, "EDIT SELECTED TEXT"),
+                                        React.createElement('span', { className: "text-xs text-gray-600" }, "Use Enter for new lines")
+                                    ]),
+                                    React.createElement('textarea', { 
+                                        value: selectedElement.text, 
+                                        onChange: (e) => updateSelectedElement({ text: e.target.value }), 
+                                        placeholder: "Type text here...", 
+                                        className: "w-full h-24 bg-gray-800 border border-gray-700 rounded-lg text-white p-4 outline-none resize-none font-sans" 
+                                    })
+                                ]),
 
                                 // Actions
-                                React.createElement('div', { className: "flex justify-end space-x-3" }, [
-                                    React.createElement('button', { onClick: () => addToProgram({ type: 'custom', text: customText, styles: customStyles }), className: "flex items-center px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600" }, [React.createElement(Plus, { size: 18, className: "mr-2" }), "Add to Program"]),
-                                    React.createElement('button', { onClick: () => projectContent({ type: 'custom', text: customText, styles: customStyles }), className: "flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-500" }, [React.createElement(Monitor, { size: 18, className: "mr-2" }), "Project Slide"])
+                                React.createElement('div', { className: "flex justify-end space-x-3 pt-2 border-t border-gray-800" }, [
+                                    React.createElement('button', { onClick: () => addToProgram({ type: 'custom', elements: customElements, desc: "Custom Slide (" + customElements.length + " items)" }), className: "flex items-center px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600" }, [React.createElement(Plus, { size: 18, className: "mr-2" }), "Add to Program"]),
+                                    React.createElement('button', { onClick: () => projectContent({ type: 'custom', elements: customElements }), className: "flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-500" }, [React.createElement(Monitor, { size: 18, className: "mr-2" }), "Project Slide"])
                                 ])
                             ]),
 
@@ -1219,23 +1309,35 @@
                                     }
                                 }, liveContent ? [
                                     backgroundImage && React.createElement('div', { className: "absolute inset-0 bg-black/40" }),
-                                    // Custom Style Rendering in Preview
-                                    liveContent.type === 'custom' && liveContent.styles ? 
+                                    // Live Preview Custom Render
+                                    liveContent.type === 'custom'
+                                    ? (liveContent.elements ?
+                                        liveContent.elements.map(el => {
+                                            const s = el.styles;
+                                            const shadow = s.outline ? `-1px -1px 0 ${s.outline}, 1px -1px 0 ${s.outline}` : 'none';
+                                            const font = s.font === 'serif' ? 'Merriweather, serif' : s.font === 'mono' ? 'monospace' : 'Inter, sans-serif';
+                                            return React.createElement('div', {
+                                                key: el.id,
+                                                style: {
+                                                    position: 'absolute',
+                                                    left: `${el.x}%`, top: `${el.y}%`, width: `${el.w}%`, height: el.h ? `${el.h}%` : 'auto',
+                                                    color: s.color, textAlign: s.align, fontFamily: font,
+                                                    fontSize: 'clamp(8px, 1.5vw, 24px)', // Scale down for preview
+                                                    whiteSpace: 'pre-wrap', textShadow: shadow, zIndex: 10
+                                                }
+                                            }, el.text)
+                                        })
+                                        : // Legacy
                                         React.createElement('div', {
                                             style: {
                                                 position: 'absolute',
-                                                left: `${liveContent.styles.x}%`,
-                                                top: `${liveContent.styles.y}%`,
-                                                transform: 'translate(-50%, -50%)',
-                                                color: liveContent.styles.color,
-                                                textAlign: liveContent.styles.align,
-                                                fontFamily: liveContent.styles.font === 'serif' ? 'Merriweather, serif' : liveContent.styles.font === 'mono' ? 'monospace' : 'Inter, sans-serif',
-                                                fontSize: 'clamp(8px, 1.5vw, 24px)', 
-                                                whiteSpace: 'pre-wrap',
-                                                textShadow: liveContent.styles.outline ? `-1px -1px 0 ${liveContent.styles.outline}, 1px -1px 0 ${liveContent.styles.outline}` : 'none',
-                                                zIndex: 10
+                                                left: `${liveContent.styles.x}%`, top: `${liveContent.styles.y}%`,
+                                                transform: 'translate(-50%, -50%)', color: liveContent.styles.color,
+                                                textAlign: liveContent.styles.align, fontFamily: 'Inter, sans-serif',
+                                                fontSize: 'clamp(8px, 1.5vw, 24px)', whiteSpace: 'pre-wrap', zIndex: 10
                                             }
                                         }, liveContent.text)
+                                    )
                                     : [
                                         React.createElement('div', { style: { fontSize: 'clamp(8px, 2vw, 14px)', whiteSpace: 'pre-wrap', lineHeight: '1.2', zIndex: 10, padding: '1rem' }, className: "font-bold relative" }, liveContent.text),
                                         liveContent.type === 'bible' && React.createElement('div', { className: "mt-2 text-[8px] opacity-75 border-t border-current pt-1 relative z-10" }, liveContent.reference)
