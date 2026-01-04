@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Church Presenter Pro + Cloud</title>
+    <title>Church Presenter Pro + Local</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -51,27 +51,18 @@
             ChevronLeft, Loader2, Command, ExternalLink, Power, Globe, Wand2, 
             FolderInput, FileText, Database, Download, List, Image as ImageIcon,
             ArrowUp, ArrowDown, LogIn, LogOut, Upload, Cloud, Archive, Share2,
-            FilePlus, Copy
+            FilePlus, Copy, HardDrive
         } from 'https://esm.sh/lucide-react@0.292.0';
         
-        // Firebase Imports
+        // Firebase Imports (Kept for Authentication & Program Backup if needed, but Themes are now local)
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
         import { 
             getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged 
         } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
-        // Firestore (Used for Program/Themes)
         import { 
             getFirestore, collection, addDoc, query, onSnapshot, deleteDoc, 
             doc, updateDoc, orderBy, serverTimestamp, writeBatch, where, getDocs 
         } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
-        // Storage (Used for Images)
-        import { 
-            getStorage, ref, uploadBytes, getDownloadURL, deleteObject 
-        } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js';
-        // Realtime Database (Added as requested)
-        import { 
-            getDatabase, ref as rtdbRef, set, onValue, push, child, update, get 
-        } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js';
 
         // --- Firebase Configuration ---
         const firebaseConfig = {
@@ -88,15 +79,11 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const db = getFirestore(app);
-        const storage = getStorage(app);
-        const rtdb = getDatabase(app); // Realtime Database Initialized
 
         // --- Constants ---
         const BIBLE_VERSIONS = [
             { id: 'web', name: 'World English Bible (WEB)' },
             { id: 'kjv', name: 'King James Version (KJV)' },
-            // Removed 'tlab' from online list as api doesn't support it reliably. 
-            // It will be handled via Local Import.
         ];
 
         const BIBLE_BOOKS = [
@@ -111,77 +98,65 @@
             "1 Peter", "2 Peter", "1 John", "2 John", "3 John", "Jude", "Revelation"
         ];
 
-        // --- IndexedDB Helpers (Local Songs & Bibles) ---
+        // --- IndexedDB Helpers (Local Songs, Bibles, & Themes) ---
         const DB_NAME = 'ChurchPresenterDB';
+        const DB_VERSION = 3; // Incremented for themes
+        
         const initDB = () => {
             return new Promise((resolve, reject) => {
-                const request = indexedDB.open(DB_NAME, 2);
+                const request = indexedDB.open(DB_NAME, DB_VERSION);
                 request.onupgradeneeded = (event) => {
                     const db = event.target.result;
                     if (!db.objectStoreNames.contains('local_bibles')) db.createObjectStore('local_bibles', { keyPath: 'id' });
                     if (!db.objectStoreNames.contains('songs')) db.createObjectStore('songs', { keyPath: 'id' });
+                    if (!db.objectStoreNames.contains('local_themes')) db.createObjectStore('local_themes', { keyPath: 'id' });
                 };
                 request.onsuccess = () => resolve(request.result);
                 request.onerror = () => reject(request.error);
             });
         };
 
-        const saveLocalBible = async (bibleData) => {
+        // --- Local Data Access Functions ---
+        const saveToDB = async (storeName, data) => {
             const db = await initDB();
             return new Promise((resolve, reject) => {
-                const tx = db.transaction('local_bibles', 'readwrite');
-                tx.objectStore('local_bibles').put(bibleData);
-                tx.oncomplete = () => resolve();
-                tx.onerror = () => reject();
-            });
-        };
-        const getLocalBibles = async () => {
-            const db = await initDB();
-            return new Promise((resolve, reject) => {
-                const tx = db.transaction('local_bibles', 'readonly');
-                const req = tx.objectStore('local_bibles').getAll();
-                req.onsuccess = () => resolve(req.result);
-                req.onerror = () => reject();
-            });
-        };
-        const deleteLocalBibleFromDB = async (id) => {
-            const db = await initDB();
-            return new Promise((resolve, reject) => {
-                const tx = db.transaction('local_bibles', 'readwrite');
-                tx.objectStore('local_bibles').delete(id);
-                tx.oncomplete = () => resolve();
-                tx.onerror = () => reject();
-            });
-        };
-
-        const saveSongToDB = async (song) => {
-            const db = await initDB();
-            return new Promise((resolve, reject) => {
-                const tx = db.transaction('songs', 'readwrite');
-                tx.objectStore('songs').put(song);
-                tx.oncomplete = () => resolve(song);
+                const tx = db.transaction(storeName, 'readwrite');
+                tx.objectStore(storeName).put(data);
+                tx.oncomplete = () => resolve(data);
                 tx.onerror = () => reject(tx.error);
             });
         };
-        const getSongsFromDB = async () => {
+        const getFromDB = async (storeName) => {
             const db = await initDB();
             return new Promise((resolve, reject) => {
-                const tx = db.transaction('songs', 'readonly');
-                const req = tx.objectStore('songs').getAll();
+                const tx = db.transaction(storeName, 'readonly');
+                const req = tx.objectStore(storeName).getAll();
                 req.onsuccess = () => resolve(req.result);
                 req.onerror = () => reject(req.error);
             });
         };
-        const deleteSongFromDB = async (id) => {
+        const deleteFromDB = async (storeName, id) => {
             const db = await initDB();
             return new Promise((resolve, reject) => {
-                const tx = db.transaction('songs', 'readwrite');
-                tx.objectStore('songs').delete(id);
+                const tx = db.transaction(storeName, 'readwrite');
+                tx.objectStore(storeName).delete(id);
                 tx.oncomplete = () => resolve();
                 tx.onerror = () => reject(tx.error);
             });
         };
 
+        // Wrappers
+        const saveLocalBible = (d) => saveToDB('local_bibles', d);
+        const getLocalBibles = () => getFromDB('local_bibles');
+        const deleteLocalBibleFromDB = (id) => deleteFromDB('local_bibles', id);
+        
+        const saveSongToDB = (d) => saveToDB('songs', d);
+        const getSongsFromDB = () => getFromDB('songs');
+        const deleteSongFromDB = (id) => deleteFromDB('songs', id);
+        
+        const saveThemeToDB = (d) => saveToDB('local_themes', d);
+        const getThemesFromDB = () => getFromDB('local_themes');
+        const deleteThemeFromDB = (id) => deleteFromDB('local_themes', id);
 
         // --- Projector Window ---
         const PROJECTOR_HTML_TEMPLATE = `
@@ -248,17 +223,17 @@
             const [backgroundImage, setBackgroundImage] = useState(null);
             
             // Theme Manager State
-            const [themeCategory, setThemeCategory] = useState('General'); // Currently selected folder for upload
-            const [isCreatingFolder, setIsCreatingFolder] = useState(false); // Toggle for new folder input
+            const [themeCategory, setThemeCategory] = useState('General'); 
+            const [isCreatingFolder, setIsCreatingFolder] = useState(false);
             const [newFolderName, setNewFolderName] = useState('');
-            const [uploadedThemes, setUploadedThemes] = useState({}); // { Category: [ {url, name} ] }
+            const [localThemes, setLocalThemes] = useState({}); // { Category: [ {id, url, name} ] }
             const [uploadingTheme, setUploadingTheme] = useState(false);
 
             // Program
             const [program, setProgram] = useState([]);
             const [savedPrograms, setSavedPrograms] = useState([]);
             const [programName, setProgramName] = useState('');
-            const [currentProgramId, setCurrentProgramId] = useState(null); // Track active program ID
+            const [currentProgramId, setCurrentProgramId] = useState(null); 
             const [isSavingProgram, setIsSavingProgram] = useState(false);
 
             // Bible
@@ -305,50 +280,42 @@
                         onSnapshot(q, (snap) => {
                             setSavedPrograms(snap.docs.map(d => ({id: d.id, ...d.data()})));
                         });
-
-                        // Load saved themes (Firestore)
-                        const themesRef = collection(db, 'users', currentUser.uid, 'themes');
-                        const qThemes = query(themesRef, orderBy('createdAt', 'desc'));
-                        onSnapshot(qThemes, (snap) => {
-                            const themes = {};
-                            snap.docs.forEach(doc => {
-                                const data = doc.data();
-                                const cat = data.category || "General";
-                                if (!themes[cat]) themes[cat] = [];
-                                themes[cat].push({ id: doc.id, ...data });
-                            });
-                            setUploadedThemes(themes);
-                        }, (error) => {
-                            console.error("Error listening to themes:", error);
-                        });
                     } else {
                         setSavedPrograms([]);
-                        setUploadedThemes({});
                     }
                 });
                 refreshLocalBibles();
                 refreshLocalSongs();
+                refreshLocalThemes(); // Always load local themes
                 return () => unsubscribe();
             }, []);
 
             // --- Theme Helpers ---
+            const refreshLocalThemes = async () => {
+                try {
+                    const themes = await getThemesFromDB();
+                    const grouped = {};
+                    themes.forEach(t => {
+                        const cat = t.category || "General";
+                        if (!grouped[cat]) grouped[cat] = [];
+                        grouped[cat].push(t);
+                    });
+                    setLocalThemes(grouped);
+                } catch (e) { console.error("Error loading themes:", e); }
+            };
+
             const availableFolders = useMemo(() => {
-                const folders = Object.keys(uploadedThemes);
+                const folders = Object.keys(localThemes);
                 const defaults = ['General', 'Worship', 'Sermon', 'Announcements'];
                 return [...new Set([...defaults, ...folders])].sort();
-            }, [uploadedThemes]);
+            }, [localThemes]);
 
-            const deleteTheme = async (themeId, themeUrl) => {
-                if(!confirm("Are you sure you want to delete this theme?")) return;
+            const deleteTheme = async (themeId) => {
+                if(!confirm("Are you sure you want to delete this theme from local storage?")) return;
                 try {
-                    // Delete from Firestore
-                    await deleteDoc(doc(db, 'users', user.uid, 'themes', themeId));
-                    
-                    // Attempt to delete from Storage (optional, strictly speaking, but good practice)
-                    // We try to reconstruct the path or just leave it as an orphan file if simple
-                    // For this simple implementation, we just remove the database reference to hide it.
+                    await deleteThemeFromDB(themeId);
+                    refreshLocalThemes();
                 } catch (e) {
-                    console.error("Error deleting theme:", e);
                     alert("Failed to delete theme: " + e.message);
                 }
             };
@@ -401,9 +368,8 @@
 
             useEffect(() => { updateProjector(liveContent); }, [liveContent, fontSize, theme, backgroundImage]);
 
-            // --- Theme Functions ---
-            const handleCloudThemeUpload = async (e) => {
-                if (!user) { alert("Please login to upload themes to cloud."); e.target.value = ''; return; }
+            // --- Theme Functions (LOCAL) ---
+            const handleLocalThemeUpload = async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
 
@@ -415,46 +381,39 @@
                 }
                 
                 setUploadingTheme(true);
-                try {
-                    // Upload to Firebase Storage
-                    // Use a unique name to prevent overwrites or browser caching issues
-                    const storagePath = `themes/${user.uid}/${category}/${Date.now()}_${file.name}`;
-                    const storageRef = ref(storage, storagePath);
-                    
-                    console.log("Starting upload to:", storagePath);
-                    await uploadBytes(storageRef, file);
-                    console.log("Upload complete, getting URL...");
-                    const url = await getDownloadURL(storageRef);
-                    console.log("Got URL:", url);
-
-                    // Save reference to Firestore
-                    await addDoc(collection(db, 'users', user.uid, 'themes'), {
-                        url: url,
-                        name: file.name,
-                        category: category,
-                        createdAt: serverTimestamp()
-                    });
-                    
-                    setBackgroundImage(url); // Auto set as current
-                    
-                    // Reset Creation State
-                    if (isCreatingFolder) {
-                        setThemeCategory(category);
-                        setIsCreatingFolder(false);
-                        setNewFolderName('');
+                
+                const reader = new FileReader();
+                reader.onload = async (event) => {
+                    try {
+                        const dataUrl = event.target.result;
+                        await saveThemeToDB({
+                            id: Date.now().toString(),
+                            url: dataUrl,
+                            name: file.name,
+                            category: category,
+                            createdAt: new Date().toISOString()
+                        });
+                        
+                        setBackgroundImage(dataUrl); // Auto set as current
+                        
+                        // Reset Creation State
+                        if (isCreatingFolder) {
+                            setThemeCategory(category);
+                            setIsCreatingFolder(false);
+                            setNewFolderName('');
+                        }
+                        
+                        refreshLocalThemes();
+                        alert("Theme saved locally!");
+                    } catch (err) {
+                        console.error(err);
+                        alert("Failed to save theme: " + err.message);
+                    } finally {
+                        setUploadingTheme(false);
+                        e.target.value = '';
                     }
-                    
-                    alert("Theme uploaded successfully!");
-                } catch (err) {
-                    console.error("Upload failed detail:", err);
-                    let msg = err.message;
-                    if (msg.includes("unauthorized") || msg.includes("permission-denied")) msg = "Permission denied. Check Firebase Storage Rules.";
-                    else if (msg.includes("cors")) msg = "CORS error. Please configure CORS on your Firebase Storage bucket.";
-                    alert("Upload failed: " + msg);
-                } finally {
-                    setUploadingTheme(false);
-                    e.target.value = ''; // Reset input to allow selecting same file again
-                }
+                };
+                reader.readAsDataURL(file);
             };
 
             // --- Program Functions ---
@@ -734,13 +693,8 @@
                     const parser = new DOMParser();
                     const xmlDoc = parser.parseFromString(text, "text/xml");
                     
-                    // Check for parsing errors
-                    const parserError = xmlDoc.querySelector("parsererror");
-                    if (parserError) {
-                        throw new Error("Invalid XML file.");
-                    }
+                    if (xmlDoc.querySelector("parsererror")) throw new Error("Invalid XML file.");
 
-                    // Try to get Bible Name
                     let bibleName = "Unknown Bible";
                     const titleNode = xmlDoc.querySelector("bibleName, BIBLENAME, title, TITLE");
                     if (titleNode) bibleName = titleNode.textContent;
@@ -748,49 +702,88 @@
 
                     const books = {};
                     
-                    // Flexible selector for books
-                    const bookNodes = xmlDoc.querySelectorAll("BIBLEBOOK, biblebook, book, BOOK");
+                    // --- Enhanced Parsing Logic for Numbered Books ---
+                    const testaments = xmlDoc.querySelectorAll("testament, TESTAMENT");
                     
-                    if (bookNodes.length === 0) {
-                        throw new Error("No books found in XML. Ensure format is Zefania XML.");
-                    }
+                    if (testaments.length > 0) {
+                        // Parse by Testament to handle numbering
+                        testaments.forEach((t, tIndex) => {
+                            const tName = t.getAttribute('name') || (tIndex === 0 ? "Old" : "New");
+                            const isNewTestament = tName.toLowerCase().includes('new');
+                            
+                            // Get books inside this testament
+                            const tBooks = t.querySelectorAll("book, BOOK, BIBLEBOOK, biblebook");
+                            tBooks.forEach(b => {
+                                let bName = b.getAttribute("bname") || b.getAttribute("name") || b.getAttribute("id");
+                                const bNum = parseInt(b.getAttribute("number") || b.getAttribute("n") || b.getAttribute("bnumber"));
+                                
+                                // Map Number to Name if name is missing
+                                if (!bName && !isNaN(bNum)) {
+                                    // 0-38 = OT (Genesis to Malachi), 39-65 = NT (Matthew to Rev)
+                                    // If Old Testament: Index = Num - 1
+                                    // If New Testament: Index = 39 + (Num - 1)
+                                    if (isNewTestament) {
+                                        bName = BIBLE_BOOKS[39 + (bNum - 1)];
+                                    } else {
+                                        bName = BIBLE_BOOKS[bNum - 1];
+                                    }
+                                }
 
-                    bookNodes.forEach(b => {
-                        // Flexible attribute for book name
-                        const bName = b.getAttribute("bname") || b.getAttribute("bnumber") || b.getAttribute("name") || b.getAttribute("id");
-                        if (!bName) return;
-                        
-                        books[bName] = {};
-                        
-                        const chapterNodes = b.querySelectorAll("CHAPTER, chapter, c, C");
-                        chapterNodes.forEach(c => {
-                            const cNum = c.getAttribute("cnumber") || c.getAttribute("number") || c.getAttribute("n") || c.getAttribute("id");
-                            if (!cNum) return;
-                            
-                            books[bName][cNum] = {};
-                            
-                            const versNodes = c.querySelectorAll("VERS, vers, v, V");
-                            versNodes.forEach(v => {
-                                const vNum = v.getAttribute("vnumber") || v.getAttribute("number") || v.getAttribute("n") || v.getAttribute("id");
-                                if (vNum) {
-                                    books[bName][cNum][vNum] = v.textContent;
+                                if (bName && BIBLE_BOOKS.includes(bName)) {
+                                    books[bName] = {};
+                                    const chapters = b.querySelectorAll("chapter, CHAPTER, c, C");
+                                    chapters.forEach(c => {
+                                        const cNum = c.getAttribute("number") || c.getAttribute("n") || c.getAttribute("cnumber");
+                                        if (cNum) {
+                                            books[bName][cNum] = {};
+                                            const verses = c.querySelectorAll("verse, VERSE, v, V");
+                                            verses.forEach(v => {
+                                                const vNum = v.getAttribute("number") || v.getAttribute("n") || v.getAttribute("vnumber");
+                                                if (vNum) books[bName][cNum][vNum] = v.textContent;
+                                            });
+                                        }
+                                    });
                                 }
                             });
                         });
-                    });
+                    } else {
+                        // Fallback: Flat Structure (assuming standard numbering 1-66 if names missing)
+                        const allBooks = xmlDoc.querySelectorAll("book, BOOK, BIBLEBOOK, biblebook");
+                        allBooks.forEach(b => {
+                             let bName = b.getAttribute("bname") || b.getAttribute("name") || b.getAttribute("id");
+                             const bNum = parseInt(b.getAttribute("number") || b.getAttribute("n"));
+                             
+                             if (!bName && !isNaN(bNum)) {
+                                 // Assume continuous 1-66
+                                 bName = BIBLE_BOOKS[bNum - 1];
+                             }
+                             
+                             if (bName) {
+                                books[bName] = {};
+                                const chapters = b.querySelectorAll("chapter, CHAPTER, c, C");
+                                chapters.forEach(c => {
+                                    const cNum = c.getAttribute("number") || c.getAttribute("n");
+                                    if (cNum) {
+                                        books[bName][cNum] = {};
+                                        const verses = c.querySelectorAll("verse, VERSE, v, V");
+                                        verses.forEach(v => {
+                                            const vNum = v.getAttribute("number") || v.getAttribute("n");
+                                            if (vNum) books[bName][cNum][vNum] = v.textContent;
+                                        });
+                                    }
+                                });
+                             }
+                        });
+                    }
 
                     if (Object.keys(books).length === 0) {
-                        throw new Error("Parsed structure but found no content.");
+                        throw new Error("No recognized books found. Ensure proper XML format.");
                     }
 
                     const newBible = { id: `local-${Date.now()}`, name: bibleName, books: books, type: 'local' };
                     await saveLocalBible(newBible);
-                    
-                    // Force refresh of local bibles list
-                    const updatedBibles = await getLocalBibles();
-                    setLocalBibles(updatedBibles);
-                    
-                    setImportStatus(`Imported ${bibleName} (${Object.keys(books).length} books)!`);
+                    refreshLocalBibles();
+                    setImportStatus(`Imported ${bibleName} successfully!`);
                 } catch (err) {
                     console.error(err);
                     alert("Import failed: " + err.message);
@@ -798,7 +791,7 @@
                 }
                 
                 setTimeout(() => setImportStatus(''), 3000);
-                e.target.value = ''; // Reset input
+                e.target.value = ''; 
             };
             
             const handleFolderImport = async (e, category) => {
@@ -843,13 +836,13 @@
                 React.createElement('header', { className: "flex items-center justify-between px-6 py-3 bg-gray-950 border-b border-gray-800 shrink-0" }, [
                     React.createElement('div', { className: "flex items-center space-x-3" }, [
                         React.createElement(Monitor, { className: "text-blue-500" }),
-                        React.createElement('h1', { className: "text-xl font-bold tracking-tight" }, [ "ChurchPresenter", React.createElement('span', { className: "text-xs font-normal text-gray-500 ml-2" }, "Cloud") ])
+                        React.createElement('h1', { className: "text-xl font-bold tracking-tight" }, [ "ChurchPresenter", React.createElement('span', { className: "text-xs font-normal text-gray-500 ml-2" }, "Local + Cloud Auth") ])
                     ]),
                     React.createElement('div', { className: "flex items-center space-x-4" }, [
                         user ? React.createElement('div', { className: "flex items-center space-x-2 text-sm text-gray-400" }, [
                             React.createElement('span', {}, user.email),
                             React.createElement('button', { onClick: handleLogout, className: "p-2 hover:bg-gray-800 rounded-full text-white", title: "Logout" }, React.createElement(LogOut, { size: 16 }))
-                        ]) : React.createElement('button', { onClick: handleLogin, className: "flex items-center px-4 py-2 bg-blue-700 text-white rounded-lg hover:bg-blue-600 text-sm font-medium" }, [ React.createElement(LogIn, { size: 16, className: "mr-2" }), "Google Login" ]),
+                        ]) : React.createElement('button', { onClick: handleLogin, className: "flex items-center px-4 py-2 bg-blue-700 text-white rounded-lg hover:bg-blue-600 text-sm font-medium" }, [ React.createElement(LogIn, { size: 16, className: "mr-2" }), "Google Login (For Backups)" ]),
                         React.createElement('div', { className: "h-6 w-px bg-gray-800" }),
                         React.createElement('button', { onClick: openProjectorWindow, className: "flex items-center px-4 py-2 bg-gray-800 text-gray-300 rounded-lg hover:bg-gray-700 border border-gray-700 transition-colors text-sm font-medium" }, [ React.createElement(ExternalLink, { size: 16, className: "mr-2" }), "Projector" ]),
                         React.createElement('button', { onClick: () => { if (!liveContent) { alert("Select content!"); return; } setInternalLiveMode(true); }, className: "flex items-center px-4 py-2 rounded-full font-bold bg-green-600 text-white hover:bg-green-500 text-sm" }, [ React.createElement(Maximize2, { size: 16, className: "mr-2" }), "FullScreen" ])
@@ -952,7 +945,6 @@
                                         React.createElement('label', { className: "block text-sm font-medium text-gray-400 mb-1" }, "Translation"),
                                         React.createElement('div', { className: "flex flex-wrap gap-2" }, [
                                             ...BIBLE_VERSIONS.map(v => React.createElement('button', { key: v.id, onClick: () => setBibleVersion(v.id), className: `flex-1 py-2 px-3 text-sm rounded-lg border min-w-[120px] ${bibleVersion === v.id ? 'bg-blue-600 border-blue-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}` }, v.name)),
-                                            React.createElement('button', { onClick: () => setBibleVersion('tlab'), className: `flex-1 py-2 px-3 text-sm rounded-lg border min-w-[120px] ${bibleVersion === 'tlab' ? 'bg-yellow-600 border-yellow-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}` }, "Tagalog (Ang Biblia)"),
                                             ...localBibles.map(v => React.createElement('button', { key: v.id, onClick: () => setBibleVersion(v.id), className: `flex-1 py-2 px-3 text-sm rounded-lg border min-w-[120px] ${bibleVersion === v.id ? 'bg-green-600 border-green-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}` }, v.name + " (Local)"))
                                         ])
                                     ])
@@ -1029,13 +1021,12 @@
                             // SETTINGS TAB
                             React.createElement('div', { className: activeTab === 'settings' ? "max-w-4xl mx-auto w-full space-y-8 animate-in fade-in duration-200" : "hidden-tab" }, [
                                 React.createElement('div', { className: "space-y-4" }, [
-                                    React.createElement('h2', { className: "text-xl font-bold flex items-center" }, [ React.createElement(ImageIcon, { className: "mr-2" }), "Cloud Theme Manager" ]),
-                                    !user ? React.createElement('div', { className: "p-4 bg-yellow-900/30 text-yellow-200 rounded-lg border border-yellow-800" }, "Please login with Google to save and categorize themes.") : 
+                                    React.createElement('h2', { className: "text-xl font-bold flex items-center" }, [ React.createElement(HardDrive, { className: "mr-2" }), "Local Theme Manager" ]),
                                     React.createElement('div', { className: "bg-gray-800 p-6 rounded-lg border border-gray-700" }, [
                                         
-                                        // Upload Controls
+                                        // Upload Controls (LOCAL)
                                         React.createElement('div', { className: "mb-8 p-4 bg-gray-900/50 rounded-lg border border-gray-700" }, [
-                                            React.createElement('h3', { className: "text-sm font-semibold text-gray-400 uppercase mb-3" }, "Add New Theme"),
+                                            React.createElement('h3', { className: "text-sm font-semibold text-gray-400 uppercase mb-3" }, "Add New Theme (Saved to Computer)"),
                                             React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-4" }, [
                                                 React.createElement('div', {}, [
                                                     React.createElement('label', { className: "block text-xs font-medium text-gray-500 mb-1" }, "Target Folder"),
@@ -1051,15 +1042,15 @@
                                                 ]),
                                                 React.createElement('div', {}, [
                                                     React.createElement('label', { className: "block text-xs font-medium text-gray-500 mb-1" }, "Select Image"),
-                                                    React.createElement('input', { type: "file", accept: "image/png, image/jpeg, image/gif", onChange: handleCloudThemeUpload, disabled: uploadingTheme, className: "block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer" })
+                                                    React.createElement('input', { type: "file", accept: "image/png, image/jpeg, image/gif", onChange: handleLocalThemeUpload, disabled: uploadingTheme, className: "block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer" })
                                                 ])
                                             ]),
-                                            uploadingTheme && React.createElement('div', { className: "mt-3 text-blue-400 text-xs flex items-center" }, [ React.createElement(Loader2, { size: 12, className: "animate-spin mr-2" }), "Uploading to cloud..." ])
+                                            uploadingTheme && React.createElement('div', { className: "mt-3 text-blue-400 text-xs flex items-center" }, [ React.createElement(Loader2, { size: 12, className: "animate-spin mr-2" }), "Processing image..." ])
                                         ]),
 
                                         // Folders Display
-                                        Object.keys(uploadedThemes).length === 0 ? React.createElement('div', { className: "text-center text-gray-500 py-8" }, "No uploaded themes yet.") :
-                                        React.createElement('div', { className: "space-y-6" }, Object.entries(uploadedThemes).sort().map(([cat, themes]) => 
+                                        Object.keys(localThemes).length === 0 ? React.createElement('div', { className: "text-center text-gray-500 py-8" }, "No themes found. Upload one above.") :
+                                        React.createElement('div', { className: "space-y-6" }, Object.entries(localThemes).sort().map(([cat, themes]) => 
                                             React.createElement('div', { key: cat, className: "bg-gray-900/30 rounded-xl p-4 border border-gray-800" }, [
                                                 React.createElement('div', { className: "flex items-center mb-3 border-b border-gray-800 pb-2" }, [
                                                     React.createElement(FolderInput, { size: 16, className: "text-blue-500 mr-2" }),
@@ -1071,7 +1062,7 @@
                                                         React.createElement('img', { src: t.url, className: "w-full h-full object-cover", onClick: () => setBackgroundImage(t.url) }),
                                                         React.createElement('div', { className: "absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent p-2 pt-6 opacity-0 group-hover:opacity-100 transition-opacity flex justify-between items-end" }, [
                                                             React.createElement('span', { className: "text-[10px] text-gray-300 truncate max-w-[70%]" }, t.name),
-                                                            React.createElement('button', { onClick: (e) => { e.stopPropagation(); deleteTheme(t.id, t.url); }, className: "text-red-400 hover:text-red-200 bg-black/50 p-1 rounded hover:bg-red-900/50" }, React.createElement(Trash2, { size: 12 }))
+                                                            React.createElement('button', { onClick: (e) => { e.stopPropagation(); deleteTheme(t.id); }, className: "text-red-400 hover:text-red-200 bg-black/50 p-1 rounded hover:bg-red-900/50" }, React.createElement(Trash2, { size: 12 }))
                                                         ])
                                                     ])
                                                 ))
