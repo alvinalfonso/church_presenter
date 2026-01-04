@@ -727,28 +727,78 @@
             const handleBibleImport = async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
+                
                 setImportStatus("Parsing XML...");
-                const text = await file.text();
-                const parser = new DOMParser();
-                const xmlDoc = parser.parseFromString(text, "text/xml");
-                const bibleName = xmlDoc.querySelector("bibleName")?.textContent || file.name.replace('.xml','');
-                const books = {};
-                xmlDoc.querySelectorAll("BIBLEBOOK").forEach(b => {
-                    const bName = b.getAttribute("bname");
-                    if (!bName) return;
-                    books[bName] = {};
-                    b.querySelectorAll("CHAPTER").forEach(c => {
-                        const cNum = c.getAttribute("cnumber");
-                        books[bName][cNum] = {};
-                        c.querySelectorAll("VERS").forEach(v => {
-                            books[bName][cNum][v.getAttribute("vnumber")] = v.textContent;
+                try {
+                    const text = await file.text();
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(text, "text/xml");
+                    
+                    // Check for parsing errors
+                    const parserError = xmlDoc.querySelector("parsererror");
+                    if (parserError) {
+                        throw new Error("Invalid XML file.");
+                    }
+
+                    // Try to get Bible Name
+                    let bibleName = "Unknown Bible";
+                    const titleNode = xmlDoc.querySelector("bibleName, BIBLENAME, title, TITLE");
+                    if (titleNode) bibleName = titleNode.textContent;
+                    else bibleName = file.name.replace('.xml','');
+
+                    const books = {};
+                    
+                    // Flexible selector for books
+                    const bookNodes = xmlDoc.querySelectorAll("BIBLEBOOK, biblebook, book, BOOK");
+                    
+                    if (bookNodes.length === 0) {
+                        throw new Error("No books found in XML. Ensure format is Zefania XML.");
+                    }
+
+                    bookNodes.forEach(b => {
+                        // Flexible attribute for book name
+                        const bName = b.getAttribute("bname") || b.getAttribute("bnumber") || b.getAttribute("name") || b.getAttribute("id");
+                        if (!bName) return;
+                        
+                        books[bName] = {};
+                        
+                        const chapterNodes = b.querySelectorAll("CHAPTER, chapter, c, C");
+                        chapterNodes.forEach(c => {
+                            const cNum = c.getAttribute("cnumber") || c.getAttribute("number") || c.getAttribute("n") || c.getAttribute("id");
+                            if (!cNum) return;
+                            
+                            books[bName][cNum] = {};
+                            
+                            const versNodes = c.querySelectorAll("VERS, vers, v, V");
+                            versNodes.forEach(v => {
+                                const vNum = v.getAttribute("vnumber") || v.getAttribute("number") || v.getAttribute("n") || v.getAttribute("id");
+                                if (vNum) {
+                                    books[bName][cNum][vNum] = v.textContent;
+                                }
+                            });
                         });
                     });
-                });
-                await saveLocalBible({ id: `local-${Date.now()}`, name: bibleName, books: books, type: 'local' });
-                refreshLocalBibles();
-                setImportStatus(`Imported ${bibleName}!`);
+
+                    if (Object.keys(books).length === 0) {
+                        throw new Error("Parsed structure but found no content.");
+                    }
+
+                    const newBible = { id: `local-${Date.now()}`, name: bibleName, books: books, type: 'local' };
+                    await saveLocalBible(newBible);
+                    
+                    // Force refresh of local bibles list
+                    const updatedBibles = await getLocalBibles();
+                    setLocalBibles(updatedBibles);
+                    
+                    setImportStatus(`Imported ${bibleName} (${Object.keys(books).length} books)!`);
+                } catch (err) {
+                    console.error(err);
+                    alert("Import failed: " + err.message);
+                    setImportStatus("Import failed.");
+                }
+                
                 setTimeout(() => setImportStatus(''), 3000);
+                e.target.value = ''; // Reset input
             };
             
             const handleFolderImport = async (e, category) => {
