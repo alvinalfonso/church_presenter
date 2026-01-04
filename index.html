@@ -50,7 +50,7 @@
             Trash2, Play, Maximize2, Minimize2, Edit3, X, ChevronRight, 
             ChevronLeft, Loader2, Command, ExternalLink, Power, Globe, Wand2, 
             FolderInput, FileText, Database, Download, List, Image as ImageIcon,
-            ArrowUp, ArrowDown, LogIn, LogOut, Upload, Cloud, Archive
+            ArrowUp, ArrowDown, LogIn, LogOut, Upload, Cloud, Archive, Share2
         } from 'https://esm.sh/lucide-react@0.292.0';
         
         // Firebase Imports
@@ -58,13 +58,19 @@
         import { 
             getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged 
         } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        // Firestore (Used for Program/Themes)
         import { 
             getFirestore, collection, addDoc, query, onSnapshot, deleteDoc, 
             doc, updateDoc, orderBy, serverTimestamp, writeBatch, where, getDocs 
         } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+        // Storage (Used for Images)
         import { 
             getStorage, ref, uploadBytes, getDownloadURL 
         } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js';
+        // Realtime Database (Added as requested)
+        import { 
+            getDatabase, ref as rtdbRef, set, onValue, push, child, update, get 
+        } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-database.js';
 
         // --- Firebase Configuration ---
         const firebaseConfig = {
@@ -82,6 +88,7 @@
         const auth = getAuth(app);
         const db = getFirestore(app);
         const storage = getStorage(app);
+        const rtdb = getDatabase(app); // Realtime Database Initialized
 
         // --- Constants ---
         const BIBLE_VERSIONS = [
@@ -286,14 +293,14 @@
                 const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
                     setUser(currentUser);
                     if (currentUser) {
-                        // Load saved programs
+                        // Load saved programs (Firestore)
                         const programsRef = collection(db, 'users', currentUser.uid, 'programs');
                         const q = query(programsRef, orderBy('createdAt', 'desc'));
                         onSnapshot(q, (snap) => {
                             setSavedPrograms(snap.docs.map(d => ({id: d.id, ...d.data()})));
                         });
 
-                        // Load saved themes
+                        // Load saved themes (Firestore)
                         const themesRef = collection(db, 'users', currentUser.uid, 'themes');
                         const qThemes = query(themesRef, orderBy('createdAt', 'desc'));
                         onSnapshot(qThemes, (snap) => {
@@ -439,6 +446,46 @@
                     setProgram(newProg);
                 }
             };
+            
+            const exportCurrentProgram = () => {
+                if (program.length === 0) { alert("Program is empty."); return; }
+                const name = programName || "Service_Program";
+                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ name, items: program }));
+                const downloadAnchorNode = document.createElement('a');
+                downloadAnchorNode.setAttribute("href", dataStr);
+                downloadAnchorNode.setAttribute("download", `${name}.json`);
+                document.body.appendChild(downloadAnchorNode);
+                downloadAnchorNode.click();
+                downloadAnchorNode.remove();
+            };
+
+            const importProgram = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    try {
+                        const data = JSON.parse(event.target.result);
+                        let items = [];
+                        let name = "";
+                        if (Array.isArray(data)) {
+                            items = data;
+                        } else if (data.items && Array.isArray(data.items)) {
+                            items = data.items;
+                            name = data.name || "";
+                        } else {
+                            throw new Error("Invalid program format");
+                        }
+
+                        if (confirm(`Import program${name ? ` "${name}"` : ""}? Current items will be replaced.`)) {
+                            setProgram(items);
+                            setProgramName(name);
+                        }
+                    } catch (err) { alert("Import failed: " + err.message); }
+                    e.target.value = ''; // Reset input
+                };
+                reader.readAsText(file);
+            };
 
             // --- Bible Functions ---
             const refreshLocalBibles = () => {
@@ -446,18 +493,11 @@
             }
 
             const handleVerseNav = (direction) => {
-                // Simple logic: just increment/decrement verse. 
-                // A more complex logic would need knowledge of max verses per chapter.
-                // We rely on the API/LocalDB returning null/error to trigger chapter jump in a real app,
-                // but for this UI we will just increment blindly and let the user correct if it goes out of bounds
-                // OR implement a "try next" approach.
                 let nextV = parseInt(bibleVerse);
                 if (direction === 'next') nextV++;
                 else nextV = Math.max(1, nextV - 1);
                 
                 setBibleVerse(nextV);
-                // We don't auto-fetch here to avoid spamming if user clicks fast, 
-                // but user expects it to update. So we call fetchVerse with the new value.
                 fetchVerse(bibleBook, bibleChapter, nextV);
             };
 
@@ -466,7 +506,6 @@
                 
                 // Tagalog Guard
                 if (bibleVersion === 'tlab' || bibleVersion === 'tagalog') {
-                    // Check if local bible exists with this name
                     const localExists = localBibles.find(b => b.name.toLowerCase().includes('tagalog') || b.id === 'tlab');
                     if (!localExists) {
                         setBiblePreview({ 
@@ -513,7 +552,6 @@
                             desc: `Bible: ${data.reference}`
                         });
                     } else {
-                        // If "next" nav went too far, user will see not found.
                         setBiblePreview({ type: 'bible', text: "Verse not found.", reference: "End of Chapter?", version: "" });
                     }
                 } catch (err) {
@@ -706,6 +744,12 @@
                                 React.createElement('div', { className: "flex justify-between items-center mb-6" }, [
                                     React.createElement('h2', { className: "text-2xl font-bold" }, "Service Program"),
                                     React.createElement('div', { className: "flex space-x-2" }, [
+                                        React.createElement('button', { onClick: exportCurrentProgram, className: "flex items-center px-3 py-2 bg-gray-800 border border-gray-700 hover:bg-gray-700 rounded text-sm text-white mr-2", title: "Export to File" }, [ React.createElement(Download, { size: 16, className: "mr-2" }), "Export" ]),
+                                        React.createElement('label', { className: "flex items-center px-3 py-2 bg-gray-800 border border-gray-700 hover:bg-gray-700 rounded text-sm text-white cursor-pointer mr-2", title: "Import from File" }, [ 
+                                            React.createElement(Upload, { size: 16, className: "mr-2" }), "Import",
+                                            React.createElement('input', { type: 'file', accept: '.json', className: 'hidden', onChange: importProgram })
+                                        ]),
+                                        React.createElement('div', { className: "w-px h-8 bg-gray-700 mx-2" }),
                                         React.createElement('button', { onClick: saveProgram, disabled: isSavingProgram, className: "flex items-center px-3 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm text-white" }, [ React.createElement(Save, { size: 16, className: "mr-2" }), "Save" ]),
                                         savedPrograms.length > 0 && React.createElement('div', { className: "relative group" }, [
                                             React.createElement('button', { className: "flex items-center px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm text-white" }, [ React.createElement(Archive, { size: 16, className: "mr-2" }), "Load Saved" ]),
