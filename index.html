@@ -575,13 +575,17 @@
                     let bookKey = Object.keys(localBible.books).find(b => b.toLowerCase() === book.toLowerCase());
                     if (!bookKey) bookKey = Object.keys(localBible.books).find(b => b.toLowerCase().includes(book.toLowerCase()));
 
-                    if (bookKey && localBible.books[bookKey][chapter] && localBible.books[bookKey][chapter][verse]) {
+                    // NORMALIZE KEYS for lookup (remove leading zeros from inputs)
+                    const chapterKey = parseInt(chapter).toString();
+                    const verseKey = parseInt(verse).toString();
+
+                    if (bookKey && localBible.books[bookKey][chapterKey] && localBible.books[bookKey][chapterKey][verseKey]) {
                          setBiblePreview({
                             type: 'bible',
-                            text: localBible.books[bookKey][chapter][verse],
-                            reference: `${bookKey} ${chapter}:${verse}`,
+                            text: localBible.books[bookKey][chapterKey][verseKey],
+                            reference: `${bookKey} ${chapterKey}:${verseKey}`,
                             version: localBible.name,
-                            desc: `Bible: ${bookKey} ${chapter}:${verse}`
+                            desc: `Bible: ${bookKey} ${chapterKey}:${verseKey}`
                         });
                         setLoadingBible(false);
                         return;
@@ -696,9 +700,15 @@
                     if (xmlDoc.querySelector("parsererror")) throw new Error("Invalid XML file.");
 
                     let bibleName = "Unknown Bible";
-                    const titleNode = xmlDoc.querySelector("bibleName, BIBLENAME, title, TITLE");
-                    if (titleNode) bibleName = titleNode.textContent;
-                    else bibleName = file.name.replace('.xml','');
+                    // Try getting name from root attribute first (per user file)
+                    const bibleTag = xmlDoc.querySelector("bible");
+                    if (bibleTag && bibleTag.getAttribute("translation")) {
+                        bibleName = bibleTag.getAttribute("translation");
+                    } else {
+                        const titleNode = xmlDoc.querySelector("bibleName, BIBLENAME, title, TITLE");
+                        if (titleNode) bibleName = titleNode.textContent;
+                        else bibleName = file.name.replace('.xml','');
+                    }
 
                     const books = {};
                     
@@ -707,10 +717,10 @@
                     
                     allBooks.forEach(b => {
                         let bName = b.getAttribute("bname") || b.getAttribute("name") || b.getAttribute("id");
-                        const bNum = parseInt(b.getAttribute("number") || b.getAttribute("n") || b.getAttribute("bnumber"));
+                        const bNumRaw = b.getAttribute("number") || b.getAttribute("n") || b.getAttribute("bnumber");
+                        const bNum = parseInt(bNumRaw);
                         
                         // If book name is missing but we have a number, map it using standard BIBLE_BOOKS index
-                        // Your XML uses absolute numbering (40 = Matthew), so we subtract 1 for array index
                         if (!bName && !isNaN(bNum) && bNum > 0 && bNum <= 66) {
                             bName = BIBLE_BOOKS[bNum - 1];
                         }
@@ -719,13 +729,20 @@
                             books[bName] = {};
                             const chapters = b.querySelectorAll("chapter, CHAPTER, c, C");
                             chapters.forEach(c => {
-                                const cNum = c.getAttribute("number") || c.getAttribute("n") || c.getAttribute("cnumber");
-                                if (cNum) {
+                                const cNumRaw = c.getAttribute("number") || c.getAttribute("n") || c.getAttribute("cnumber");
+                                if (cNumRaw) {
+                                    // Normalize: "01" -> "1"
+                                    const cNum = parseInt(cNumRaw).toString();
+                                    
                                     books[bName][cNum] = {};
                                     const verses = c.querySelectorAll("verse, VERSE, v, V");
                                     verses.forEach(v => {
-                                        const vNum = v.getAttribute("number") || v.getAttribute("n") || v.getAttribute("vnumber");
-                                        if (vNum) books[bName][cNum][vNum] = v.textContent;
+                                        const vNumRaw = v.getAttribute("number") || v.getAttribute("n") || v.getAttribute("vnumber");
+                                        if (vNumRaw) {
+                                            // Normalize: "01" -> "1"
+                                            const vNum = parseInt(vNumRaw).toString();
+                                            books[bName][cNum][vNum] = v.textContent;
+                                        }
                                     });
                                 }
                             });
@@ -736,10 +753,16 @@
                         throw new Error("No recognized books found. Ensure XML uses 'number' 1-66 or standard names.");
                     }
 
-                    const newBible = { id: `local-${Date.now()}`, name: bibleName, books: books, type: 'local' };
+                    const newId = `local-${Date.now()}`;
+                    const newBible = { id: newId, name: bibleName, books: books, type: 'local' };
                     await saveLocalBible(newBible);
                     refreshLocalBibles();
+                    
+                    // AUTO-SELECT the new bible
+                    setBibleVersion(newId);
+                    
                     setImportStatus(`Imported ${bibleName} successfully!`);
+                    alert(`Imported ${bibleName} and set as active translation.`);
                 } catch (err) {
                     console.error(err);
                     alert("Import failed: " + err.message);
