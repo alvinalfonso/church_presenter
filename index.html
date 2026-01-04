@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Church Presenter Pro + Local</title>
+    <title>Church Presenter Pro + Cloud</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -19,7 +19,11 @@
                     fontFamily: {
                         sans: ['Inter', 'sans-serif'],
                         serif: ['Merriweather', 'serif'],
+                        mono: ['monospace'],
                     },
+                    cursor: {
+                        'move': 'move',
+                    }
                 },
             },
         }
@@ -36,6 +40,15 @@
         .hidden-tab { display: none !important; }
         .loader { border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        /* Text Outline Utility */
+        .text-outline {
+            text-shadow: 
+                -1px -1px 0 var(--tw-outline-color, #000),  
+                 1px -1px 0 var(--tw-outline-color, #000),
+                -1px  1px 0 var(--tw-outline-color, #000),
+                 1px  1px 0 var(--tw-outline-color, #000);
+        }
     </style>
 </head>
 <body>
@@ -51,18 +64,19 @@
             ChevronLeft, Loader2, Command, ExternalLink, Power, Globe, Wand2, 
             FolderInput, FileText, Database, Download, List, Image as ImageIcon,
             ArrowUp, ArrowDown, LogIn, LogOut, Upload, Cloud, Archive, Share2,
-            FilePlus, Copy, HardDrive
+            FilePlus, Copy, HardDrive, Move, AlignLeft, AlignCenter, AlignRight,
+            Type as TypeIcon, Palette
         } from 'https://esm.sh/lucide-react@0.292.0';
         
-        // Firebase Imports (Kept for Authentication & Program Backup if needed, but Themes are now local)
-        import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+        // Firebase Imports (Stable Version)
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js';
         import { 
             getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged 
-        } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+        } from 'https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js';
         import { 
             getFirestore, collection, addDoc, query, onSnapshot, deleteDoc, 
-            doc, updateDoc, orderBy, serverTimestamp, writeBatch, where, getDocs 
-        } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+            doc, updateDoc, orderBy, serverTimestamp, writeBatch, where, getDocs, getDoc
+        } from 'https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js';
 
         // --- Firebase Configuration ---
         const firebaseConfig = {
@@ -98,7 +112,7 @@
             "1 Peter", "2 Peter", "1 John", "2 John", "3 John", "Jude", "Revelation"
         ];
 
-        // --- IndexedDB Helpers (Local Songs, Bibles, & Themes) ---
+        // --- IndexedDB Helpers ---
         const DB_NAME = 'ChurchPresenterDB';
         const DB_VERSION = 3; 
         
@@ -107,7 +121,6 @@
                 const request = indexedDB.open(DB_NAME, DB_VERSION);
                 request.onupgradeneeded = (event) => {
                     const db = event.target.result;
-                    if (!db.objectStoreNames.contains('local_bibles')) db.createObjectStore('local_bibles', { keyPath: 'id' });
                     if (!db.objectStoreNames.contains('songs')) db.createObjectStore('songs', { keyPath: 'id' });
                     if (!db.objectStoreNames.contains('local_themes')) db.createObjectStore('local_themes', { keyPath: 'id' });
                 };
@@ -116,7 +129,6 @@
             });
         };
 
-        // --- Local Data Access Functions ---
         const saveToDB = async (storeName, data) => {
             const db = await initDB();
             return new Promise((resolve, reject) => {
@@ -145,11 +157,6 @@
             });
         };
 
-        // Wrappers
-        const saveLocalBible = (d) => saveToDB('local_bibles', d);
-        const getLocalBibles = () => getFromDB('local_bibles');
-        const deleteLocalBibleFromDB = (id) => deleteFromDB('local_bibles', id);
-        
         const saveSongToDB = (d) => saveToDB('songs', d);
         const getSongsFromDB = () => getFromDB('songs');
         const deleteSongFromDB = (id) => deleteFromDB('songs', id);
@@ -169,9 +176,11 @@
                 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
                 <style>
                     body { margin: 0; padding: 0; overflow: hidden; background-color: black; height: 100vh; width: 100vw; display: flex; justify-content: center; align-items: center; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out; }
-                    #slide-container { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 4rem; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }
+                    #slide-container { width: 100%; height: 100%; position: relative; }
+                    .center-content { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; height: 100%; padding: 4rem; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }
                     .fade-in { animation: fadeIn 0.5s ease-out forwards; }
                     @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+                    .custom-element { position: absolute; white-space: pre-wrap; }
                 </style>
             </head>
             <body><div id="slide-container"></div></body>
@@ -181,7 +190,7 @@
         // --- Internal Overlay ---
         const InternalOverlay = ({ content, onClose, fontSize, theme, bgImage }) => {
             if (!content) return null;
-            const style = { backgroundImage: bgImage ? `url(${bgImage})` : 'none', backgroundSize: 'cover', backgroundPosition: 'center' };
+            const style = { backgroundImage: bgImage ? `url("${bgImage}")` : 'none', backgroundSize: 'cover', backgroundPosition: 'center' };
             const getThemeClasses = () => {
                 if (bgImage) return 'text-white bg-black/50';
                 switch(theme) {
@@ -190,13 +199,34 @@
                     case 'black': default: return 'bg-black text-white';
                 }
             };
+            
             return React.createElement('div', { 
-                className: `fixed inset-0 z-50 flex flex-col items-center justify-center p-8 transition-colors duration-300 ${!bgImage ? getThemeClasses() : 'text-white'}`,
+                className: `fixed inset-0 z-50 flex flex-col p-0 transition-colors duration-300 ${!bgImage ? getThemeClasses() : 'text-white'}`,
                 style: style
             }, [
-                bgImage && React.createElement('div', { className: "absolute inset-0 bg-black/40 z-[-1]" }),
+                bgImage && React.createElement('div', { key: 'bg-overlay', className: "absolute inset-0 bg-black/40 z-[-1]" }),
                 React.createElement('button', { key: 'close-btn', onClick: onClose, className: "absolute top-4 right-4 p-2 bg-gray-800/50 rounded-full hover:bg-gray-700/50 text-white transition-all opacity-0 hover:opacity-100 z-50" }, React.createElement(Minimize2, { size: 24 })),
-                React.createElement('div', { key: 'content-container', className: "max-w-6xl w-full text-center space-y-8 animate-in fade-in duration-500 drop-shadow-lg" }, [
+                
+                // Content Rendering logic
+                content.type === 'custom' && content.styles 
+                ? React.createElement('div', { key: 'custom-content', className: "w-full h-full relative" }, 
+                    React.createElement('div', { 
+                        className: "absolute fade-in",
+                        style: {
+                            left: `${content.styles.x}%`,
+                            top: `${content.styles.y}%`,
+                            transform: 'translate(-50%, -50%)',
+                            color: content.styles.color,
+                            textAlign: content.styles.align,
+                            fontFamily: content.styles.font === 'serif' ? 'Merriweather, serif' : content.styles.font === 'mono' ? 'monospace' : 'Inter, sans-serif',
+                            fontSize: `${fontSize}px`, 
+                            textShadow: content.styles.outline ? 
+                                `-1px -1px 0 ${content.styles.outline}, 1px -1px 0 ${content.styles.outline}, -1px 1px 0 ${content.styles.outline}, 1px 1px 0 ${content.styles.outline}` 
+                                : '2px 2px 4px rgba(0,0,0,0.5)'
+                        }
+                    }, content.text)
+                  )
+                : React.createElement('div', { key: 'std-content', className: "w-full h-full flex flex-col items-center justify-center p-8 text-center space-y-8 animate-in fade-in duration-500 drop-shadow-lg" }, [
                     content.type === 'bible' && React.createElement(React.Fragment, null, [
                         React.createElement('h1', { className: "font-serif leading-tight whitespace-pre-wrap", style: { fontSize: `${fontSize}px` } }, content.text),
                         React.createElement('div', { className: "text-4xl opacity-90 font-sans mt-8 uppercase tracking-widest border-t border-current pt-4 inline-block" }, [ content.reference, React.createElement('span', { className: "text-sm align-top opacity-50 ml-2" }, content.version) ])
@@ -205,9 +235,9 @@
                         React.createElement('h1', { className: "font-sans font-bold leading-tight whitespace-pre-wrap", style: { fontSize: `${fontSize}px` } }, content.text),
                         content.title && React.createElement('div', { className: "fixed bottom-8 right-8 text-xl opacity-60 font-sans" }, content.title)
                     ]),
-                    content.type === 'custom' && React.createElement('h1', { className: "font-sans font-bold leading-tight whitespace-pre-wrap", style: { fontSize: `${fontSize}px` } }, content.text)
+                    content.type === 'custom' && !content.styles && React.createElement('h1', { className: "font-sans font-bold leading-tight whitespace-pre-wrap", style: { fontSize: `${fontSize}px` } }, content.text)
                 ]),
-                React.createElement('div', { className: "absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white/20 text-xs font-mono" }, "Press ESC to close")
+                React.createElement('div', { key: 'footer', className: "absolute bottom-4 left-1/2 transform -translate-x-1/2 text-white/20 text-xs font-mono" }, "Press ESC to close")
             ]);
         };
 
@@ -226,7 +256,7 @@
             const [themeCategory, setThemeCategory] = useState('General'); 
             const [isCreatingFolder, setIsCreatingFolder] = useState(false);
             const [newFolderName, setNewFolderName] = useState('');
-            const [localThemes, setLocalThemes] = useState({}); // { Category: [ {id, url, name} ] }
+            const [localThemes, setLocalThemes] = useState({});
             const [uploadingTheme, setUploadingTheme] = useState(false);
 
             // Program
@@ -243,7 +273,8 @@
             const [bibleVersion, setBibleVersion] = useState('web');
             const [biblePreview, setBiblePreview] = useState(null);
             const [loadingBible, setLoadingBible] = useState(false);
-            const [localBibles, setLocalBibles] = useState([]);
+            const [cloudBibles, setCloudBibles] = useState([]); 
+            const [bibleCache, setBibleCache] = useState({}); // Cache loaded book content
 
             // Song
             const [songs, setSongs] = useState([]);
@@ -257,7 +288,15 @@
             const [newSongLyrics, setNewSongLyrics] = useState('');
             const [isFetchingLyrics, setIsFetchingLyrics] = useState(false);
             const [fetchStatus, setFetchStatus] = useState('');
-            const [customText, setCustomText] = useState('');
+            
+            // Custom Slide
+            const [customText, setCustomText] = useState('Enter text here...');
+            const [customStyles, setCustomStyles] = useState({
+                align: 'center', color: '#ffffff', outline: '#000000', font: 'sans', x: 50, y: 50
+            });
+            const [isDragging, setIsDragging] = useState(false);
+            const customStageRef = useRef(null);
+            
             const [importStatus, setImportStatus] = useState('');
             const projectorWindowRef = useRef(null);
 
@@ -274,19 +313,20 @@
                 const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
                     setUser(currentUser);
                     if (currentUser) {
-                        // Load saved programs (Firestore)
                         const programsRef = collection(db, 'users', currentUser.uid, 'programs');
                         const q = query(programsRef, orderBy('createdAt', 'desc'));
                         onSnapshot(q, (snap) => {
                             setSavedPrograms(snap.docs.map(d => ({id: d.id, ...d.data()})));
                         });
+                        refreshCloudBibles(); // Load cloud bibles only when authenticated
                     } else {
                         setSavedPrograms([]);
+                        setCloudBibles([]); // Clear cloud data on logout
                     }
                 });
-                refreshLocalBibles();
+                // Note: removed global refreshCloudBibles() to avoid permission errors
                 refreshLocalSongs();
-                refreshLocalThemes(); // Always load local themes
+                refreshLocalThemes();
                 return () => unsubscribe();
             }, []);
 
@@ -343,7 +383,7 @@
                 if (!container) return; 
 
                 if (backgroundImage) {
-                    body.style.backgroundImage = `url(${backgroundImage})`;
+                    body.style.backgroundImage = `url("${backgroundImage}")`;
                     body.style.backgroundColor = 'black';
                     container.style.color = 'white';
                 } else {
@@ -357,23 +397,29 @@
 
                 let html = '';
                 if (content.type === 'bible') {
-                    html = `<h1 class="font-serif leading-tight whitespace-pre-wrap fade-in" style="font-size: ${fontSize}px">${content.text}</h1><div class="text-4xl opacity-75 font-sans mt-8 uppercase tracking-widest border-t border-current pt-4 inline-block fade-in">${content.reference} <span class="text-sm align-top opacity-50 ml-2">${content.version}</span></div>`;
+                    html = `<div class="center-content"><h1 class="font-serif leading-tight whitespace-pre-wrap fade-in" style="font-size: ${fontSize}px">${content.text}</h1><div class="text-4xl opacity-75 font-sans mt-8 uppercase tracking-widest border-t border-current pt-4 inline-block fade-in">${content.reference} <span class="text-sm align-top opacity-50 ml-2">${content.version}</span></div></div>`;
                 } else if (content.type === 'song') {
-                    html = `<h1 class="font-sans font-bold leading-tight whitespace-pre-wrap fade-in" style="font-size: ${fontSize}px">${content.text}</h1>${content.title ? `<div class="fixed bottom-8 right-8 text-xl opacity-40 font-sans fade-in">${content.title}</div>` : ''}`;
+                    html = `<div class="center-content"><h1 class="font-sans font-bold leading-tight whitespace-pre-wrap fade-in" style="font-size: ${fontSize}px">${content.text}</h1>${content.title ? `<div class="fixed bottom-8 right-8 text-xl opacity-40 font-sans fade-in">${content.title}</div>` : ''}</div>`;
                 } else if (content.type === 'custom') {
-                    html = `<h1 class="font-sans font-bold leading-tight whitespace-pre-wrap fade-in" style="font-size: ${fontSize}px">${content.text}</h1>`;
+                    if (content.styles) {
+                        const s = content.styles;
+                        const shadow = s.outline ? `-1px -1px 0 ${s.outline}, 1px -1px 0 ${s.outline}, -1px 1px 0 ${s.outline}, 1px 1px 0 ${s.outline}` : '2px 2px 4px rgba(0,0,0,0.5)';
+                        const font = s.font === 'serif' ? 'Merriweather, serif' : s.font === 'mono' ? 'monospace' : 'Inter, sans-serif';
+                        html = `<div class="custom-element fade-in" style="left:${s.x}%; top:${s.y}%; transform:translate(-50%, -50%); color:${s.color}; text-align:${s.align}; font-family:${font}; font-size:${fontSize}px; text-shadow:${shadow};">${content.text}</div>`;
+                    } else {
+                        html = `<div class="center-content"><h1 class="font-sans font-bold leading-tight whitespace-pre-wrap fade-in" style="font-size: ${fontSize}px">${content.text}</h1></div>`;
+                    }
                 }
                 container.innerHTML = html;
             };
 
             useEffect(() => { updateProjector(liveContent); }, [liveContent, fontSize, theme, backgroundImage]);
 
-            // --- Theme Functions (LOCAL) ---
+            // --- Theme Functions ---
             const handleLocalThemeUpload = async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
 
-                // Determine target folder
                 let category = themeCategory;
                 if (isCreatingFolder) {
                     category = newFolderName.trim();
@@ -381,7 +427,6 @@
                 }
                 
                 setUploadingTheme(true);
-                
                 const reader = new FileReader();
                 reader.onload = async (event) => {
                     try {
@@ -393,25 +438,16 @@
                             category: category,
                             createdAt: new Date().toISOString()
                         });
-                        
-                        setBackgroundImage(dataUrl); // Auto set as current
-                        
-                        // Reset Creation State
+                        setBackgroundImage(dataUrl); 
                         if (isCreatingFolder) {
                             setThemeCategory(category);
                             setIsCreatingFolder(false);
                             setNewFolderName('');
                         }
-                        
                         refreshLocalThemes();
                         alert("Theme saved locally!");
-                    } catch (err) {
-                        console.error(err);
-                        alert("Failed to save theme: " + err.message);
-                    } finally {
-                        setUploadingTheme(false);
-                        e.target.value = '';
-                    }
+                    } catch (err) { alert("Failed to save theme: " + err.message); } 
+                    finally { setUploadingTheme(false); e.target.value = ''; }
                 };
                 reader.readAsDataURL(file);
             };
@@ -419,34 +455,19 @@
             // --- Program Functions ---
             const saveProgram = async (saveAsNew = false) => {
                 if (!user) { alert("Please login to save programs."); return; }
-                
                 let name = programName;
-                // It's an update if we have an ID and we aren't explicitly forcing "Save As"
                 let isUpdate = !!currentProgramId && !saveAsNew;
-
                 if (!isUpdate) {
-                    // Prompt for a name if it's new (or Save As)
                     name = prompt("Enter a name for this program:", programName || "Service " + new Date().toLocaleDateString());
                     if (!name) return;
                 }
-
                 setIsSavingProgram(true);
                 try {
                     if (isUpdate) {
-                        // Update existing doc
-                        await updateDoc(doc(db, 'users', user.uid, 'programs', currentProgramId), {
-                            name: name,
-                            items: program,
-                            updatedAt: serverTimestamp()
-                        });
+                        await updateDoc(doc(db, 'users', user.uid, 'programs', currentProgramId), { name: name, items: program, updatedAt: serverTimestamp() });
                         alert(`Program "${name}" updated!`);
                     } else {
-                        // Create new doc
-                        const docRef = await addDoc(collection(db, 'users', user.uid, 'programs'), {
-                            name: name,
-                            items: program,
-                            createdAt: serverTimestamp()
-                        });
+                        const docRef = await addDoc(collection(db, 'users', user.uid, 'programs'), { name: name, items: program, createdAt: serverTimestamp() });
                         setCurrentProgramId(docRef.id);
                         setProgramName(name);
                         alert(`Program "${name}" saved as new!`);
@@ -465,19 +486,14 @@
             
             const clearProgram = () => {
                 if(program.length > 0 && !confirm("Start a new program? Current list will be cleared.")) return;
-                setProgram([]);
-                setProgramName('');
-                setCurrentProgramId(null);
+                setProgram([]); setProgramName(''); setCurrentProgramId(null);
             };
             
             const deleteProgram = async (id, e) => {
                 e.stopPropagation();
                 if(!confirm("Delete this program permanently?")) return;
                 await deleteDoc(doc(db, 'users', user.uid, 'programs', id));
-                if (currentProgramId === id) {
-                    setCurrentProgramId(null);
-                    setProgramName('');
-                }
+                if (currentProgramId === id) { setCurrentProgramId(null); setProgramName(''); }
             };
 
             const addToProgram = (item) => {
@@ -517,36 +533,34 @@
                         const data = JSON.parse(event.target.result);
                         let items = [];
                         let name = "";
-                        if (Array.isArray(data)) {
-                            items = data;
-                        } else if (data.items && Array.isArray(data.items)) {
-                            items = data.items;
-                            name = data.name || "";
-                        } else {
-                            throw new Error("Invalid program format");
-                        }
+                        if (Array.isArray(data)) items = data;
+                        else if (data.items && Array.isArray(data.items)) { items = data.items; name = data.name || ""; }
+                        else throw new Error("Invalid program format");
 
                         if (confirm(`Import program${name ? ` "${name}"` : ""}? Current items will be replaced.`)) {
-                            setProgram(items);
-                            setProgramName(name);
-                            setCurrentProgramId(null); // Imported file is "new" until saved
+                            setProgram(items); setProgramName(name); setCurrentProgramId(null); 
                         }
                     } catch (err) { alert("Import failed: " + err.message); }
-                    e.target.value = ''; // Reset input
+                    e.target.value = ''; 
                 };
                 reader.readAsText(file);
             };
 
-            // --- Bible Functions ---
-            const refreshLocalBibles = () => {
-                getLocalBibles().then(bibles => setLocalBibles(bibles)).catch(e => console.log("IDB Error", e));
+            // --- Cloud Bible Functions ---
+            const refreshCloudBibles = async () => {
+                if (!auth.currentUser) return; // Only fetch if user is authenticated to avoid permission errors
+                try {
+                    const q = query(collection(db, 'shared_bibles'));
+                    const querySnapshot = await getDocs(q);
+                    const bibles = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setCloudBibles(bibles);
+                } catch (e) { console.error("Error fetching cloud bibles:", e); }
             }
 
             const handleVerseNav = (direction) => {
                 let nextV = parseInt(bibleVerse);
                 if (direction === 'next') nextV++;
                 else nextV = Math.max(1, nextV - 1);
-                
                 setBibleVerse(nextV);
                 fetchVerse(bibleBook, bibleChapter, nextV);
             };
@@ -554,38 +568,44 @@
             const fetchVerse = async (book = bibleBook, chapter = bibleChapter, verse = bibleVerse) => {
                 setLoadingBible(true);
                 
-                // Tagalog Guard
-                if (bibleVersion === 'tlab' || bibleVersion === 'tagalog') {
-                    const localExists = localBibles.find(b => b.name.toLowerCase().includes('tagalog') || b.id === 'tlab');
-                    if (!localExists) {
-                        setBiblePreview({ 
-                            type: 'bible', 
-                            text: "Online API does not support Tagalog.\n\nPlease import the Tagalog (Ang Biblia) XML file using the import button below.", 
-                            reference: "System Message", 
-                            version: "Info" 
-                        });
-                        setLoadingBible(false);
-                        return;
+                // Cloud Bible Fetching Logic
+                const cloudBible = cloudBibles.find(b => b.id === bibleVersion);
+                if (cloudBible) {
+                    // Normalize Key
+                    const cacheKey = `${bibleVersion}_${book}`;
+                    let bookContent = bibleCache[cacheKey];
+
+                    // Check Cache or Fetch from Subcollection
+                    if (!bookContent) {
+                        try {
+                            const bookRef = doc(db, 'shared_bibles', bibleVersion, 'books', book);
+                            const bookSnap = await getDoc(bookRef);
+                            if (bookSnap.exists()) {
+                                bookContent = bookSnap.data().content;
+                                setBibleCache(prev => ({ ...prev, [cacheKey]: bookContent }));
+                            } else {
+                                // Try finding by close match if exact failed? (Simple exact match for now)
+                                setBiblePreview({ type: 'bible', text: "Book not found in this Cloud Bible.", reference: "Error", version: cloudBible.name });
+                                setLoadingBible(false);
+                                return;
+                            }
+                        } catch (e) {
+                            console.error(e);
+                            setBiblePreview({ type: 'bible', text: "Error loading book from Cloud.", reference: "Network Error", version: cloudBible.name });
+                            setLoadingBible(false);
+                            return;
+                        }
                     }
-                }
 
-                // Check Local
-                const localBible = localBibles.find(b => b.id === bibleVersion);
-                if (localBible) {
-                    let bookKey = Object.keys(localBible.books).find(b => b.toLowerCase() === book.toLowerCase());
-                    if (!bookKey) bookKey = Object.keys(localBible.books).find(b => b.toLowerCase().includes(book.toLowerCase()));
-
-                    // NORMALIZE KEYS for lookup (remove leading zeros from inputs)
-                    const chapterKey = parseInt(chapter).toString();
-                    const verseKey = parseInt(verse).toString();
-
-                    if (bookKey && localBible.books[bookKey][chapterKey] && localBible.books[bookKey][chapterKey][verseKey]) {
-                         setBiblePreview({
+                    const cKey = parseInt(chapter).toString();
+                    const vKey = parseInt(verse).toString();
+                    if (bookContent && bookContent[cKey] && bookContent[cKey][vKey]) {
+                        setBiblePreview({
                             type: 'bible',
-                            text: localBible.books[bookKey][chapterKey][verseKey],
-                            reference: `${bookKey} ${chapterKey}:${verseKey}`,
-                            version: localBible.name,
-                            desc: `Bible: ${bookKey} ${chapterKey}:${verseKey}`
+                            text: bookContent[cKey][vKey],
+                            reference: `${book} ${cKey}:${vKey}`,
+                            version: cloudBible.name,
+                            desc: `Bible: ${book} ${cKey}:${vKey}`
                         });
                         setLoadingBible(false);
                         return;
@@ -598,13 +618,7 @@
                     const response = await fetch(`https://bible-api.com/${query}?translation=${bibleVersion}`);
                     const data = await response.json();
                     if (data.text) {
-                        setBiblePreview({
-                            type: 'bible',
-                            text: data.text.trim(),
-                            reference: data.reference,
-                            version: bibleVersion.toUpperCase(),
-                            desc: `Bible: ${data.reference}`
-                        });
+                        setBiblePreview({ type: 'bible', text: data.text.trim(), reference: data.reference, version: bibleVersion.toUpperCase(), desc: `Bible: ${data.reference}` });
                     } else {
                         setBiblePreview({ type: 'bible', text: "Verse not found.", reference: "End of Chapter?", version: "" });
                     }
@@ -625,11 +639,8 @@
             const handleSaveSong = async () => {
                 if (!newSongTitle.trim() || !newSongLyrics.trim()) return;
                 const songId = (selectedSong && isEditingSong) ? selectedSong.id : Date.now().toString();
-                const data = { 
-                    id: songId, title: newSongTitle, artist: newSongArtist, lyrics: newSongLyrics, category: newSongCategory, updatedAt: new Date().toISOString()
-                };
+                const data = { id: songId, title: newSongTitle, artist: newSongArtist, lyrics: newSongLyrics, category: newSongCategory, updatedAt: new Date().toISOString() };
                 if (!isEditingSong) data.createdAt = new Date().toISOString();
-
                 await saveSongToDB(data);
                 setNewSongTitle(''); setNewSongArtist(''); setNewSongLyrics(''); setSelectedSong(null); setIsEditingSong(false);
                 refreshLocalSongs();
@@ -652,7 +663,6 @@
                 window.open(`https://www.google.com/search?q=${encodeURIComponent(newSongTitle + " " + newSongArtist + " lyrics")}`, '_blank');
             };
 
-            // Songbook Import/Export
             const exportSongbook = () => {
                 if (songs.length === 0) { alert("No songs to export."); return; }
                 const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(songs));
@@ -674,10 +684,7 @@
                         if (!Array.isArray(importedSongs)) throw new Error("Invalid format");
                         let count = 0;
                         for (const s of importedSongs) {
-                            if (s.title && s.lyrics) {
-                                await saveSongToDB(s);
-                                count++;
-                            }
+                            if (s.title && s.lyrics) { await saveSongToDB(s); count++; }
                         }
                         refreshLocalSongs();
                         alert(`Imported ${count} songs successfully!`);
@@ -686,12 +693,55 @@
                 reader.readAsText(file);
             };
 
-            // --- Local Import Helpers ---
-            const handleBibleImport = async (e) => {
+            // --- Custom Slide & Dragging Logic ---
+            const handleDragStart = (e) => setIsDragging(true);
+
+            const handleDragMove = (e) => {
+                if (!isDragging || !customStageRef.current) return;
+                const rect = customStageRef.current.getBoundingClientRect();
+                const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
+                const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+                // Calculate position relative to container
+                let x = clientX - rect.left;
+                let y = clientY - rect.top;
+                // Convert to percentage
+                let xPercent = (x / rect.width) * 100;
+                let yPercent = (y / rect.height) * 100;
+                // Constrain
+                xPercent = Math.max(0, Math.min(100, xPercent));
+                yPercent = Math.max(0, Math.min(100, yPercent));
+                setCustomStyles(prev => ({ ...prev, x: xPercent, y: yPercent }));
+            };
+
+            const handleDragEnd = () => setIsDragging(false);
+
+            useEffect(() => {
+                if (isDragging) {
+                    window.addEventListener('mousemove', handleDragMove);
+                    window.addEventListener('mouseup', handleDragEnd);
+                    window.addEventListener('touchmove', handleDragMove);
+                    window.addEventListener('touchend', handleDragEnd);
+                } else {
+                    window.removeEventListener('mousemove', handleDragMove);
+                    window.removeEventListener('mouseup', handleDragEnd);
+                    window.removeEventListener('touchmove', handleDragMove);
+                    window.removeEventListener('touchend', handleDragEnd);
+                }
+                return () => {
+                    window.removeEventListener('mousemove', handleDragMove);
+                    window.removeEventListener('mouseup', handleDragEnd);
+                    window.removeEventListener('touchmove', handleDragMove);
+                    window.removeEventListener('touchend', handleDragEnd);
+                };
+            }, [isDragging]);
+
+            // --- Imports Logic ---
+            const handleBibleImportToCloud = async (e) => {
+                if (!user) { alert("Please login to upload shared bibles."); return; }
                 const file = e.target.files[0];
                 if (!file) return;
                 
-                setImportStatus("Parsing XML...");
+                setImportStatus("Parsing XML for Cloud (Batching)...");
                 try {
                     const text = await file.text();
                     const parser = new DOMParser();
@@ -700,30 +750,22 @@
                     if (xmlDoc.querySelector("parsererror")) throw new Error("Invalid XML file.");
 
                     let bibleName = "Unknown Bible";
-                    // Try getting name from root attribute first (per user file)
                     const bibleTag = xmlDoc.querySelector("bible");
-                    if (bibleTag && bibleTag.getAttribute("translation")) {
-                        bibleName = bibleTag.getAttribute("translation");
-                    } else {
+                    if (bibleTag && bibleTag.getAttribute("translation")) bibleName = bibleTag.getAttribute("translation");
+                    else {
                         const titleNode = xmlDoc.querySelector("bibleName, BIBLENAME, title, TITLE");
                         if (titleNode) bibleName = titleNode.textContent;
                         else bibleName = file.name.replace('.xml','');
                     }
 
                     const books = {};
-                    
-                    // --- REVISED LOGIC: Trust attribute 'number' first ---
                     const allBooks = xmlDoc.querySelectorAll("book, BOOK, BIBLEBOOK, biblebook");
                     
                     allBooks.forEach(b => {
                         let bName = b.getAttribute("bname") || b.getAttribute("name") || b.getAttribute("id");
                         const bNumRaw = b.getAttribute("number") || b.getAttribute("n") || b.getAttribute("bnumber");
                         const bNum = parseInt(bNumRaw);
-                        
-                        // If book name is missing but we have a number, map it using standard BIBLE_BOOKS index
-                        if (!bName && !isNaN(bNum) && bNum > 0 && bNum <= 66) {
-                            bName = BIBLE_BOOKS[bNum - 1];
-                        }
+                        if (!bName && !isNaN(bNum) && bNum > 0 && bNum <= 66) bName = BIBLE_BOOKS[bNum - 1];
 
                         if (bName) {
                             books[bName] = {};
@@ -731,15 +773,12 @@
                             chapters.forEach(c => {
                                 const cNumRaw = c.getAttribute("number") || c.getAttribute("n") || c.getAttribute("cnumber");
                                 if (cNumRaw) {
-                                    // Normalize: "01" -> "1"
                                     const cNum = parseInt(cNumRaw).toString();
-                                    
                                     books[bName][cNum] = {};
                                     const verses = c.querySelectorAll("verse, VERSE, v, V");
                                     verses.forEach(v => {
                                         const vNumRaw = v.getAttribute("number") || v.getAttribute("n") || v.getAttribute("vnumber");
                                         if (vNumRaw) {
-                                            // Normalize: "01" -> "1"
                                             const vNum = parseInt(vNumRaw).toString();
                                             books[bName][cNum][vNum] = v.textContent;
                                         }
@@ -749,26 +788,35 @@
                         }
                     });
 
-                    if (Object.keys(books).length === 0) {
-                        throw new Error("No recognized books found. Ensure XML uses 'number' 1-66 or standard names.");
-                    }
+                    if (Object.keys(books).length === 0) throw new Error("No recognized books found.");
 
-                    const newId = `local-${Date.now()}`;
-                    const newBible = { id: newId, name: bibleName, books: books, type: 'local' };
-                    await saveLocalBible(newBible);
-                    refreshLocalBibles();
+                    // 1. Create Main Doc (Metadata only)
+                    const bibleRef = await addDoc(collection(db, 'shared_bibles'), {
+                        name: bibleName,
+                        uploadedBy: user.email,
+                        uploadedAt: serverTimestamp()
+                    });
+
+                    // 2. Batch Upload Books (Subcollection) to avoid 1MB limit
+                    const batch = writeBatch(db);
+                    let opCount = 0;
                     
-                    // AUTO-SELECT the new bible
-                    setBibleVersion(newId);
+                    for (const [bName, bContent] of Object.entries(books)) {
+                        const bookRef = doc(db, 'shared_bibles', bibleRef.id, 'books', bName);
+                        batch.set(bookRef, { content: bContent });
+                        opCount++;
+                    }
                     
-                    setImportStatus(`Imported ${bibleName} successfully!`);
-                    alert(`Imported ${bibleName} and set as active translation.`);
+                    await batch.commit();
+                    
+                    refreshCloudBibles();
+                    setImportStatus(`Uploaded ${bibleName} to Cloud!`);
+                    alert(`Uploaded ${bibleName} to Cloud Library.`);
                 } catch (err) {
                     console.error(err);
                     alert("Import failed: " + err.message);
                     setImportStatus("Import failed.");
                 }
-                
                 setTimeout(() => setImportStatus(''), 3000);
                 e.target.value = ''; 
             };
@@ -815,13 +863,13 @@
                 React.createElement('header', { className: "flex items-center justify-between px-6 py-3 bg-gray-950 border-b border-gray-800 shrink-0" }, [
                     React.createElement('div', { className: "flex items-center space-x-3" }, [
                         React.createElement(Monitor, { className: "text-blue-500" }),
-                        React.createElement('h1', { className: "text-xl font-bold tracking-tight" }, [ "ChurchPresenter", React.createElement('span', { className: "text-xs font-normal text-gray-500 ml-2" }, "Local + Cloud Auth") ])
+                        React.createElement('h1', { className: "text-xl font-bold tracking-tight" }, [ "ChurchPresenter", React.createElement('span', { className: "text-xs font-normal text-gray-500 ml-2" }, "Cloud Edition") ])
                     ]),
                     React.createElement('div', { className: "flex items-center space-x-4" }, [
                         user ? React.createElement('div', { className: "flex items-center space-x-2 text-sm text-gray-400" }, [
                             React.createElement('span', {}, user.email),
                             React.createElement('button', { onClick: handleLogout, className: "p-2 hover:bg-gray-800 rounded-full text-white", title: "Logout" }, React.createElement(LogOut, { size: 16 }))
-                        ]) : React.createElement('button', { onClick: handleLogin, className: "flex items-center px-4 py-2 bg-blue-700 text-white rounded-lg hover:bg-blue-600 text-sm font-medium" }, [ React.createElement(LogIn, { size: 16, className: "mr-2" }), "Google Login (For Backups)" ]),
+                        ]) : React.createElement('button', { onClick: handleLogin, className: "flex items-center px-4 py-2 bg-blue-700 text-white rounded-lg hover:bg-blue-600 text-sm font-medium" }, [ React.createElement(LogIn, { size: 16, className: "mr-2" }), "Google Login" ]),
                         React.createElement('div', { className: "h-6 w-px bg-gray-800" }),
                         React.createElement('button', { onClick: openProjectorWindow, className: "flex items-center px-4 py-2 bg-gray-800 text-gray-300 rounded-lg hover:bg-gray-700 border border-gray-700 transition-colors text-sm font-medium" }, [ React.createElement(ExternalLink, { size: 16, className: "mr-2" }), "Projector" ]),
                         React.createElement('button', { onClick: () => { if (!liveContent) { alert("Select content!"); return; } setInternalLiveMode(true); }, className: "flex items-center px-4 py-2 rounded-full font-bold bg-green-600 text-white hover:bg-green-500 text-sm" }, [ React.createElement(Maximize2, { size: 16, className: "mr-2" }), "FullScreen" ])
@@ -835,7 +883,7 @@
                             React.createElement('div', { className: "my-2 border-b border-gray-800" }),
                             React.createElement(SidebarButton, { icon: BookOpen, label: "Bible", tabId: "bible" }),
                             React.createElement(SidebarButton, { icon: Music, label: "Songbook", tabId: "songs" }),
-                            React.createElement(SidebarButton, { icon: Type, label: "Custom", tabId: "custom" }),
+                            React.createElement(SidebarButton, { icon: Type, label: "Custom Slides", tabId: "custom" }),
                             React.createElement(SidebarButton, { icon: Settings, label: "Settings", tabId: "settings" }),
                         ]),
                         React.createElement('div', { className: "mt-auto" }, [
@@ -922,10 +970,10 @@
                                         React.createElement('div', {}, [ React.createElement('label', { className: "block text-sm font-medium text-gray-400 mb-1" }, "Verse"), React.createElement('input', { type: "number", value: bibleVerse, onChange: (e) => setBibleVerse(e.target.value), className: "w-full bg-gray-800 border-gray-700 rounded-lg text-white p-2 outline-none" }) ])
                                     ]),
                                     React.createElement('div', { className: "col-span-2" }, [
-                                        React.createElement('label', { className: "block text-sm font-medium text-gray-400 mb-1" }, "Translation"),
+                                        React.createElement('label', { className: "block text-sm font-medium text-gray-400 mb-1 flex justify-between" }, ["Translation", React.createElement('span', { className: "text-xs text-blue-400"}, "Green = Cloud Shared")]),
                                         React.createElement('div', { className: "flex flex-wrap gap-2" }, [
                                             ...BIBLE_VERSIONS.map(v => React.createElement('button', { key: v.id, onClick: () => setBibleVersion(v.id), className: `flex-1 py-2 px-3 text-sm rounded-lg border min-w-[120px] ${bibleVersion === v.id ? 'bg-blue-600 border-blue-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}` }, v.name)),
-                                            ...localBibles.map(v => React.createElement('button', { key: v.id, onClick: () => setBibleVersion(v.id), className: `flex-1 py-2 px-3 text-sm rounded-lg border min-w-[120px] ${bibleVersion === v.id ? 'bg-green-600 border-green-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}` }, v.name + " (Local)"))
+                                            ...cloudBibles.map(v => React.createElement('button', { key: v.id, onClick: () => setBibleVersion(v.id), className: `flex-1 py-2 px-3 text-sm rounded-lg border min-w-[120px] ${bibleVersion === v.id ? 'bg-green-600 border-green-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}` }, [ React.createElement(Cloud, { size: 12, className: "inline mr-1" }), v.name ]))
                                         ])
                                     ])
                                 ]),
@@ -990,11 +1038,78 @@
                             ]),
 
                             // CUSTOM TAB
-                            React.createElement('div', { className: activeTab === 'custom' ? "max-w-2xl mx-auto w-full space-y-6 animate-in fade-in duration-200" : "hidden-tab" }, [
-                                React.createElement('div', {}, [ React.createElement('label', { className: "block text-sm font-medium text-gray-400 mb-2" }, "Custom Slide Content"), React.createElement('textarea', { value: customText, onChange: (e) => setCustomText(e.target.value), placeholder: "Type your announcement or message here...", className: "w-full h-64 bg-gray-800 border-gray-700 rounded-lg text-white p-4 text-lg outline-none" }) ]),
+                            React.createElement('div', { className: activeTab === 'custom' ? "max-w-4xl mx-auto w-full space-y-4 animate-in fade-in duration-200 h-full flex flex-col" : "hidden-tab" }, [
+                                // Toolbar
+                                React.createElement('div', { className: "bg-gray-800 p-2 rounded-lg border border-gray-700 flex items-center space-x-4 overflow-x-auto" }, [
+                                    React.createElement('div', { className: "flex items-center space-x-1 border-r border-gray-600 pr-4" }, [
+                                        React.createElement('button', { onClick: () => setCustomStyles(s => ({...s, align: 'left'})), className: `p-2 rounded ${customStyles.align === 'left' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}` }, React.createElement(AlignLeft, { size: 18 })),
+                                        React.createElement('button', { onClick: () => setCustomStyles(s => ({...s, align: 'center'})), className: `p-2 rounded ${customStyles.align === 'center' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}` }, React.createElement(AlignCenter, { size: 18 })),
+                                        React.createElement('button', { onClick: () => setCustomStyles(s => ({...s, align: 'right'})), className: `p-2 rounded ${customStyles.align === 'right' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}` }, React.createElement(AlignRight, { size: 18 })),
+                                    ]),
+                                    React.createElement('div', { className: "flex items-center space-x-2 border-r border-gray-600 pr-4" }, [
+                                        React.createElement(TypeIcon, { size: 18, className: "text-gray-400" }),
+                                        React.createElement('select', { value: customStyles.font, onChange: (e) => setCustomStyles(s => ({...s, font: e.target.value})), className: "bg-gray-900 border border-gray-700 text-white text-sm rounded p-1" }, [
+                                            React.createElement('option', { value: "sans" }, "Sans Serif"),
+                                            React.createElement('option', { value: "serif" }, "Serif"),
+                                            React.createElement('option', { value: "mono" }, "Monospace"),
+                                        ])
+                                    ]),
+                                    React.createElement('div', { className: "flex items-center space-x-2 border-r border-gray-600 pr-4" }, [
+                                        React.createElement(Palette, { size: 18, className: "text-gray-400" }),
+                                        React.createElement('div', { className: "flex items-center space-x-1" }, [
+                                            React.createElement('span', { className: "text-xs text-gray-500" }, "Color"),
+                                            React.createElement('input', { type: "color", value: customStyles.color, onChange: (e) => setCustomStyles(s => ({...s, color: e.target.value})), className: "w-6 h-6 rounded cursor-pointer bg-transparent" })
+                                        ]),
+                                        React.createElement('div', { className: "flex items-center space-x-1" }, [
+                                            React.createElement('span', { className: "text-xs text-gray-500" }, "Outline"),
+                                            React.createElement('input', { type: "color", value: customStyles.outline, onChange: (e) => setCustomStyles(s => ({...s, outline: e.target.value})), className: "w-6 h-6 rounded cursor-pointer bg-transparent" })
+                                        ])
+                                    ]),
+                                    React.createElement('div', { className: "text-xs text-gray-400 flex items-center" }, [
+                                        React.createElement(Move, { size: 14, className: "mr-1" }),
+                                        "Drag text to position"
+                                    ])
+                                ]),
+
+                                // Editor Stage (Simulated Aspect Ratio)
+                                React.createElement('div', { className: "flex-1 bg-black rounded-lg border border-gray-700 relative overflow-hidden flex items-center justify-center select-none" }, [
+                                    React.createElement('div', { 
+                                        ref: customStageRef,
+                                        className: "relative bg-gray-900 w-full aspect-video border border-gray-800 shadow-2xl overflow-hidden",
+                                        style: { backgroundImage: backgroundImage ? `url("${backgroundImage}")` : 'none', backgroundSize: 'cover', backgroundPosition: 'center' }
+                                    }, [
+                                        !backgroundImage && React.createElement('div', { className: "absolute inset-0 flex items-center justify-center pointer-events-none opacity-20" }, React.createElement('span', { className: "text-6xl font-bold text-gray-700" }, "16:9 PREVIEW")),
+                                        // Draggable Element
+                                        React.createElement('div', {
+                                            className: `absolute cursor-move select-none p-2 border-2 ${isDragging ? 'border-blue-500 border-dashed' : 'border-transparent hover:border-blue-500/50'}`,
+                                            onMouseDown: handleDragStart,
+                                            onTouchStart: handleDragStart,
+                                            style: {
+                                                left: `${customStyles.x}%`,
+                                                top: `${customStyles.y}%`,
+                                                transform: 'translate(-50%, -50%)',
+                                                color: customStyles.color,
+                                                textAlign: customStyles.align,
+                                                fontFamily: customStyles.font === 'serif' ? 'Merriweather, serif' : customStyles.font === 'mono' ? 'monospace' : 'Inter, sans-serif',
+                                                fontSize: `${fontSize * 0.5}px`, 
+                                                textShadow: `-1px -1px 0 ${customStyles.outline}, 1px -1px 0 ${customStyles.outline}, -1px 1px 0 ${customStyles.outline}, 1px 1px 0 ${customStyles.outline}`
+                                            }
+                                        }, customText)
+                                    ])
+                                ]),
+
+                                // Text Input
+                                React.createElement('textarea', { 
+                                    value: customText, 
+                                    onChange: (e) => setCustomText(e.target.value), 
+                                    placeholder: "Type your text here...", 
+                                    className: "w-full h-24 bg-gray-800 border-gray-700 rounded-lg text-white p-4 outline-none resize-none" 
+                                }),
+
+                                // Actions
                                 React.createElement('div', { className: "flex justify-end space-x-3" }, [
-                                    React.createElement('button', { onClick: () => addToProgram({ type: 'custom', text: customText }), className: "flex items-center px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600" }, [React.createElement(Plus, { size: 18, className: "mr-2" }), "Add to Program"]),
-                                    React.createElement('button', { onClick: () => projectContent({ type: 'custom', text: customText }), className: "flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-500" }, [React.createElement(Monitor, { size: 18, className: "mr-2" }), "Project Slide"])
+                                    React.createElement('button', { onClick: () => addToProgram({ type: 'custom', text: customText, styles: customStyles }), className: "flex items-center px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600" }, [React.createElement(Plus, { size: 18, className: "mr-2" }), "Add to Program"]),
+                                    React.createElement('button', { onClick: () => projectContent({ type: 'custom', text: customText, styles: customStyles }), className: "flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-500" }, [React.createElement(Monitor, { size: 18, className: "mr-2" }), "Project Slide"])
                                 ])
                             ]),
 
@@ -1004,7 +1119,7 @@
                                     React.createElement('h2', { className: "text-xl font-bold flex items-center" }, [ React.createElement(HardDrive, { className: "mr-2" }), "Local Theme Manager" ]),
                                     React.createElement('div', { className: "bg-gray-800 p-6 rounded-lg border border-gray-700" }, [
                                         
-                                        // Upload Controls (LOCAL)
+                                        // Upload Controls
                                         React.createElement('div', { className: "mb-8 p-4 bg-gray-900/50 rounded-lg border border-gray-700" }, [
                                             React.createElement('h3', { className: "text-sm font-semibold text-gray-400 uppercase mb-3" }, "Add New Theme (Saved to Computer)"),
                                             React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-4" }, [
@@ -1054,7 +1169,7 @@
                                 React.createElement('div', { className: "h-px bg-gray-800" }),
 
                                 React.createElement('div', { className: "space-y-4" }, [
-                                    React.createElement('h2', { className: "text-xl font-bold flex items-center" }, [ React.createElement(FolderInput, { className: "mr-2" }), "Local Imports" ]),
+                                    React.createElement('h2', { className: "text-xl font-bold flex items-center" }, [ React.createElement(FolderInput, { className: "mr-2" }), "Imports" ]),
                                     importStatus && React.createElement('div', { className: "p-3 bg-blue-900/30 border border-blue-800 text-blue-200 rounded-lg text-sm animate-pulse" }, importStatus),
                                     React.createElement('div', { className: "grid grid-cols-1 md:grid-cols-2 gap-4" }, [
                                         React.createElement('label', { className: "p-4 bg-gray-800 rounded-lg border border-gray-700 hover:bg-gray-700 cursor-pointer flex flex-col items-center justify-center text-center space-y-2" }, [
@@ -1063,17 +1178,21 @@
                                             React.createElement('input', { type: "file", webkitdirectory: "true", directory: "true", multiple: true, className: "hidden", onChange: (e) => handleFolderImport(e, 'Imported') })
                                         ]),
                                         React.createElement('label', { className: "p-4 bg-gray-800 rounded-lg border border-gray-700 hover:bg-gray-700 cursor-pointer flex flex-col items-center justify-center text-center space-y-2" }, [
-                                            React.createElement(FileText, { size: 32, className: "text-blue-500" }),
-                                            React.createElement('span', { className: "font-semibold" }, "Import XML Bible (For Tagalog)"),
-                                            React.createElement('input', { type: "file", accept: ".xml", className: "hidden", onChange: handleBibleImport })
+                                            React.createElement(Cloud, { size: 32, className: "text-blue-500" }),
+                                            React.createElement('span', { className: "font-semibold" }, "Upload XML Bible to Cloud"),
+                                            React.createElement('span', { className: "text-xs text-gray-500" }, "Available to all users"),
+                                            React.createElement('input', { type: "file", accept: ".xml", className: "hidden", onChange: handleBibleImportToCloud })
                                         ]),
                                     ]),
-                                    localBibles.length > 0 && React.createElement('div', { className: "mt-4" }, [
-                                        React.createElement('h3', { className: "text-sm font-semibold text-gray-500 mb-2 uppercase" }, "Installed Local Bibles"),
-                                        React.createElement('ul', { className: "space-y-2" }, localBibles.map(b => 
-                                            React.createElement('li', { key: b.id, className: "flex items-center justify-between p-3 bg-gray-800 rounded-lg" }, [
-                                                React.createElement('span', { className: "font-medium" }, b.name),
-                                                React.createElement('button', { onClick: () => { if(confirm('Delete Bible?')) { deleteLocalBibleFromDB(b.id); refreshLocalBibles(); } }, className: "text-red-400 hover:text-red-300 p-2" }, React.createElement(Trash2, { size: 16 }))
+                                    cloudBibles.length > 0 && React.createElement('div', { className: "mt-4" }, [
+                                        React.createElement('h3', { className: "text-sm font-semibold text-gray-500 mb-2 uppercase" }, "Shared Cloud Bibles"),
+                                        React.createElement('ul', { className: "space-y-2" }, cloudBibles.map(b => 
+                                            React.createElement('li', { key: b.id, className: "flex items-center justify-between p-3 bg-gray-800 rounded-lg border border-gray-700" }, [
+                                                React.createElement('div', { className: "flex items-center" }, [
+                                                    React.createElement(Cloud, { size: 16, className: "text-green-500 mr-2" }),
+                                                    React.createElement('span', { className: "font-medium" }, b.name),
+                                                ]),
+                                                React.createElement('span', { className: "text-xs text-gray-500" }, "Shared")
                                             ])
                                         ))
                                     ])
@@ -1090,9 +1209,9 @@
                             ),
                             React.createElement('div', { className: "flex-1 p-4 flex items-center justify-center overflow-hidden relative" }, 
                                 React.createElement('div', {
-                                    className: "aspect-video w-full bg-white text-black rounded shadow-lg overflow-hidden relative flex flex-col items-center justify-center p-2 text-center select-none",
+                                    className: "aspect-video w-full bg-white text-black rounded shadow-lg overflow-hidden relative flex flex-col items-center justify-center text-center select-none",
                                     style: { 
-                                        backgroundImage: backgroundImage ? `url(${backgroundImage})` : 'none',
+                                        backgroundImage: backgroundImage ? `url("${backgroundImage}")` : 'none',
                                         backgroundSize: 'cover',
                                         backgroundPosition: 'center',
                                         backgroundColor: theme === 'blue' ? '#1e3a8a' : theme === 'black' ? '#000' : '#fff', 
@@ -1100,8 +1219,27 @@
                                     }
                                 }, liveContent ? [
                                     backgroundImage && React.createElement('div', { className: "absolute inset-0 bg-black/40" }),
-                                    React.createElement('div', { style: { fontSize: 'clamp(8px, 2vw, 14px)', whiteSpace: 'pre-wrap', lineHeight: '1.2', zIndex: 10 }, className: "font-bold relative" }, liveContent.text),
-                                    liveContent.type === 'bible' && React.createElement('div', { className: "mt-2 text-[8px] opacity-75 border-t border-current pt-1 relative z-10" }, liveContent.reference)
+                                    // Custom Style Rendering in Preview
+                                    liveContent.type === 'custom' && liveContent.styles ? 
+                                        React.createElement('div', {
+                                            style: {
+                                                position: 'absolute',
+                                                left: `${liveContent.styles.x}%`,
+                                                top: `${liveContent.styles.y}%`,
+                                                transform: 'translate(-50%, -50%)',
+                                                color: liveContent.styles.color,
+                                                textAlign: liveContent.styles.align,
+                                                fontFamily: liveContent.styles.font === 'serif' ? 'Merriweather, serif' : liveContent.styles.font === 'mono' ? 'monospace' : 'Inter, sans-serif',
+                                                fontSize: 'clamp(8px, 1.5vw, 24px)', 
+                                                whiteSpace: 'pre-wrap',
+                                                textShadow: liveContent.styles.outline ? `-1px -1px 0 ${liveContent.styles.outline}, 1px -1px 0 ${liveContent.styles.outline}` : 'none',
+                                                zIndex: 10
+                                            }
+                                        }, liveContent.text)
+                                    : [
+                                        React.createElement('div', { style: { fontSize: 'clamp(8px, 2vw, 14px)', whiteSpace: 'pre-wrap', lineHeight: '1.2', zIndex: 10, padding: '1rem' }, className: "font-bold relative" }, liveContent.text),
+                                        liveContent.type === 'bible' && React.createElement('div', { className: "mt-2 text-[8px] opacity-75 border-t border-current pt-1 relative z-10" }, liveContent.reference)
+                                    ]
                                 ] : React.createElement('div', { className: "text-gray-500 text-xs" }, "OFF AIR (Black)"))
                             ),
                             React.createElement('div', { className: "p-4 bg-gray-900 border-t border-gray-800" }, [
