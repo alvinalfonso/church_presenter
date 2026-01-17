@@ -9,7 +9,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     
     <!-- Google Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&family=Oswald:wght@400;700&family=Lato:wght@400;700;900&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
     
     <!-- Tailwind Config for Fonts -->
     <script>
@@ -20,6 +20,9 @@
                         sans: ['Inter', 'sans-serif'],
                         serif: ['Merriweather', 'serif'],
                         mono: ['monospace'],
+                        oswald: ['Oswald', 'sans-serif'],
+                        lato: ['Lato', 'sans-serif'],
+                        playfair: ['Playfair Display', 'serif'],
                     },
                     cursor: {
                         'move': 'move',
@@ -41,23 +44,14 @@
         .loader { border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; width: 20px; height: 20px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
-        /* Text Outline Utility */
-        .text-outline {
-            text-shadow: 
-                -1px -1px 0 var(--tw-outline-color, #000),  
-                 1px -1px 0 var(--tw-outline-color, #000),
-                -1px  1px 0 var(--tw-outline-color, #000),
-                 1px  1px 0 var(--tw-outline-color, #000);
-        }
-
         /* Custom Editor Styles */
         .editor-element { position: absolute; user-select: none; box-sizing: border-box; }
         .editor-element:hover { outline: 1px dashed rgba(255,255,255,0.3); }
-        .editor-element.selected { outline: 2px dashed #3b82f6; z-index: 10; cursor: move; }
+        .editor-element.selected { outline: 2px dashed #3b82f6; cursor: move; } /* z-index handled inline now */
         .resize-handle {
             position: absolute; bottom: -6px; right: -6px; width: 12px; height: 12px;
             background-color: #3b82f6; border: 2px solid white; border-radius: 50%;
-            cursor: nwse-resize; z-index: 20; display: none;
+            cursor: nwse-resize; z-index: 100; display: none;
         }
         .editor-element.selected .resize-handle { display: block; }
     </style>
@@ -76,10 +70,11 @@
             FolderInput, FileText, Database, Download, List, Image as ImageIcon,
             ArrowUp, ArrowDown, LogIn, LogOut, Upload, Cloud, Archive, Share2,
             FilePlus, Copy, HardDrive, Move, AlignLeft, AlignCenter, AlignRight,
-            Type as TypeIcon, Palette, MousePointer2, Scaling
+            Type as TypeIcon, Palette, MousePointer2, Scaling, Layers,
+            Bold, Italic, MinusCircle, CheckCircle, WifiOff
         } from 'https://esm.sh/lucide-react@0.292.0';
         
-        // Firebase Imports (Stable Version)
+        // Firebase Imports
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js';
         import { 
             getAuth, signInWithPopup, GoogleAuthProvider, signOut, onAuthStateChanged 
@@ -110,6 +105,15 @@
             { id: 'web', name: 'World English Bible (WEB)' },
             { id: 'kjv', name: 'King James Version (KJV)' },
         ];
+        
+        const FONT_OPTIONS = [
+            { id: 'sans', name: 'Inter (Sans)', val: 'Inter, sans-serif' },
+            { id: 'serif', name: 'Merriweather (Serif)', val: 'Merriweather, serif' },
+            { id: 'oswald', name: 'Oswald (Condensed)', val: 'Oswald, sans-serif' },
+            { id: 'lato', name: 'Lato (Round)', val: 'Lato, sans-serif' },
+            { id: 'playfair', name: 'Playfair (Display)', val: 'Playfair Display, serif' },
+            { id: 'mono', name: 'Monospace', val: 'monospace' },
+        ];
 
         const BIBLE_BOOKS = [
             "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy", "Joshua", "Judges", "Ruth", 
@@ -125,7 +129,7 @@
 
         // --- IndexedDB Helpers ---
         const DB_NAME = 'ChurchPresenterDB';
-        const DB_VERSION = 3; 
+        const DB_VERSION = 4; // Incremented for offline_bibles
         
         const initDB = () => {
             return new Promise((resolve, reject) => {
@@ -134,6 +138,7 @@
                     const db = event.target.result;
                     if (!db.objectStoreNames.contains('songs')) db.createObjectStore('songs', { keyPath: 'id' });
                     if (!db.objectStoreNames.contains('local_themes')) db.createObjectStore('local_themes', { keyPath: 'id' });
+                    if (!db.objectStoreNames.contains('offline_bibles')) db.createObjectStore('offline_bibles', { keyPath: 'id' });
                 };
                 request.onsuccess = () => resolve(request.result);
                 request.onerror = () => reject(request.error);
@@ -149,11 +154,12 @@
                 tx.onerror = () => reject(tx.error);
             });
         };
-        const getFromDB = async (storeName) => {
+        const getFromDB = async (storeName, key) => {
             const db = await initDB();
             return new Promise((resolve, reject) => {
                 const tx = db.transaction(storeName, 'readonly');
-                const req = tx.objectStore(storeName).getAll();
+                const store = tx.objectStore(storeName);
+                const req = key ? store.get(key) : store.getAll();
                 req.onsuccess = () => resolve(req.result);
                 req.onerror = () => reject(req.error);
             });
@@ -176,6 +182,10 @@
         const getThemesFromDB = () => getFromDB('local_themes');
         const deleteThemeFromDB = (id) => deleteFromDB('local_themes', id);
 
+        const saveBibleToDB = (d) => saveToDB('offline_bibles', d);
+        const getBibleFromDB = (id) => getFromDB('offline_bibles', id);
+        const getAllOfflineBibles = () => getFromDB('offline_bibles');
+
         // --- Projector Window ---
         const PROJECTOR_HTML_TEMPLATE = `
             <!DOCTYPE html>
@@ -184,7 +194,7 @@
                 <meta charset="UTF-8">
                 <title>Projector Output</title>
                 <script src="https://cdn.tailwindcss.com"><\/script>
-                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Merriweather:wght@400;700&display=swap" rel="stylesheet">
+                <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&family=Oswald:wght@400;700&family=Lato:wght@400;700;900&family=Playfair+Display:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
                 <style>
                     body { margin: 0; padding: 0; overflow: hidden; background-color: black; height: 100vh; width: 100vw; display: flex; justify-content: center; align-items: center; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out; }
                     #slide-container { width: 100%; height: 100%; position: relative; }
@@ -197,6 +207,17 @@
             <body><div id="slide-container"></div></body>
             </html>
         `;
+
+        // --- Utils for rendering styles ---
+        const getFontFamily = (fontId) => {
+            const found = FONT_OPTIONS.find(f => f.id === fontId);
+            return found ? found.val : 'Inter, sans-serif';
+        };
+
+        const getShadow = (outlineColor) => {
+            if (!outlineColor || outlineColor === 'none' || outlineColor === 'transparent') return 'none';
+            return `-1px -1px 0 ${outlineColor}, 1px -1px 0 ${outlineColor}, -1px 1px 0 ${outlineColor}, 1px 1px 0 ${outlineColor}`;
+        };
 
         // --- Internal Overlay ---
         const InternalOverlay = ({ content, onClose, fontSize, theme, bgImage }) => {
@@ -219,47 +240,43 @@
                 React.createElement('button', { key: 'close-btn', onClick: onClose, className: "absolute top-4 right-4 p-2 bg-gray-800/50 rounded-full hover:bg-gray-700/50 text-white transition-all opacity-0 hover:opacity-100 z-50" }, React.createElement(Minimize2, { size: 24 })),
                 
                 // Content Rendering logic
-                content.type === 'custom'
+                content.type === 'custom' || content.type === 'program_custom'
                 ? (content.elements ? 
-                    // New Multi-Element Rendering
                     React.createElement('div', { key: 'custom-multi', className: "w-full h-full relative" },
-                        content.elements.map(el => {
+                        // Sort by Z-Index before rendering
+                        [...content.elements].sort((a,b) => (a.zIndex || 0) - (b.zIndex || 0)).map(el => {
+                             if (el.type === 'image') {
+                                 return React.createElement('img', {
+                                    key: el.id,
+                                    src: el.src,
+                                    className: "custom-element fade-in object-contain",
+                                    style: { left: `${el.x}%`, top: `${el.y}%`, width: `${el.w}%`, height: `${el.h}%`, zIndex: el.zIndex || 1 }
+                                 });
+                             }
                              const s = el.styles;
-                             const shadow = s.outline ? `-1px -1px 0 ${s.outline}, 1px -1px 0 ${s.outline}, -1px 1px 0 ${s.outline}, 1px 1px 0 ${s.outline}` : '2px 2px 4px rgba(0,0,0,0.5)';
-                             const font = s.font === 'serif' ? 'Merriweather, serif' : s.font === 'mono' ? 'monospace' : 'Inter, sans-serif';
+                             const shadow = getShadow(s.outline);
+                             const font = getFontFamily(s.font);
                              return React.createElement('div', {
                                 key: el.id,
                                 className: "custom-element fade-in",
                                 style: {
                                     left: `${el.x}%`, top: `${el.y}%`, width: `${el.w}%`, height: el.h ? `${el.h}%` : 'auto',
                                     color: s.color, textAlign: s.align, fontFamily: font, 
-                                    fontSize: `${s.fontSize || fontSize}px`, textShadow: shadow
+                                    fontWeight: s.bold ? 'bold' : 'normal', fontStyle: s.italic ? 'italic' : 'normal',
+                                    fontSize: `${s.fontSize || fontSize}px`, textShadow: shadow,
+                                    zIndex: el.zIndex || 1
                                 }
                              }, el.text);
                         })
                     )
-                    : // Legacy Single Element Rendering
-                    React.createElement('div', { key: 'custom-single', className: "w-full h-full relative" }, 
-                        content.styles ? React.createElement('div', { 
-                            className: "absolute fade-in",
-                            style: {
-                                left: `${content.styles.x}%`, top: `${content.styles.y}%`, transform: 'translate(-50%, -50%)',
-                                color: content.styles.color, textAlign: content.styles.align,
-                                fontFamily: content.styles.font === 'serif' ? 'Merriweather, serif' : content.styles.font === 'mono' ? 'monospace' : 'Inter, sans-serif',
-                                fontSize: `${fontSize}px`, 
-                                textShadow: content.styles.outline ? `-1px -1px 0 ${content.styles.outline}, 1px -1px 0 ${content.styles.outline}` : '2px 2px 4px rgba(0,0,0,0.5)'
-                            }
-                        }, content.text) : React.createElement('div', { className: "w-full h-full flex items-center justify-center p-8 text-center" }, 
-                            React.createElement('h1', { className: "font-sans font-bold", style: { fontSize: `${fontSize}px` } }, content.text)
-                        )
-                    )
+                    : null
                   )
                 : React.createElement('div', { key: 'std-content', className: "w-full h-full flex flex-col items-center justify-center p-8 text-center space-y-8 animate-in fade-in duration-500 drop-shadow-lg" }, [
-                    content.type === 'bible' && React.createElement(React.Fragment, null, [
+                    (content.type === 'bible' || content.type === 'program_bible') && React.createElement(React.Fragment, null, [
                         React.createElement('h1', { className: "font-serif leading-tight whitespace-pre-wrap", style: { fontSize: `${fontSize}px` } }, content.text),
                         React.createElement('div', { className: "text-4xl opacity-90 font-sans mt-8 uppercase tracking-widest border-t border-current pt-4 inline-block" }, [ content.reference, React.createElement('span', { className: "text-sm align-top opacity-50 ml-2" }, content.version) ])
                     ]),
-                    content.type === 'song' && React.createElement('div', { className: "flex flex-col h-full justify-center" }, [
+                    (content.type === 'song' || content.type === 'program_song_slide') && React.createElement('div', { className: "flex flex-col h-full justify-center" }, [
                         React.createElement('h1', { className: "font-sans font-bold leading-tight whitespace-pre-wrap", style: { fontSize: `${fontSize}px` } }, content.text),
                         content.title && React.createElement('div', { className: "fixed bottom-8 right-8 text-xl opacity-60 font-sans" }, content.title)
                     ])
@@ -292,6 +309,8 @@
             const [programName, setProgramName] = useState('');
             const [currentProgramId, setCurrentProgramId] = useState(null); 
             const [isSavingProgram, setIsSavingProgram] = useState(false);
+            const [editingProgramItemIndex, setEditingProgramItemIndex] = useState(null);
+            const [tempProgramEditText, setTempProgramEditText] = useState('');
 
             // Bible
             const [bibleBook, setBibleBook] = useState('John');
@@ -301,7 +320,7 @@
             const [biblePreview, setBiblePreview] = useState(null);
             const [loadingBible, setLoadingBible] = useState(false);
             const [cloudBibles, setCloudBibles] = useState([]); 
-            const [bibleCache, setBibleCache] = useState({}); 
+            const [offlineBibles, setOfflineBibles] = useState({}); 
 
             // Song
             const [songs, setSongs] = useState([]);
@@ -319,12 +338,14 @@
             // --- Custom Slide (Advanced) ---
             const [customElements, setCustomElements] = useState([{
                 id: Date.now(),
+                type: 'text',
                 text: "Click to Edit\nDouble click toolbar to format",
-                x: 10, y: 30, w: 80, h: 40,
-                styles: { color: '#ffffff', outline: '#000000', font: 'sans', align: 'center', fontSize: 60 }
+                x: 10, y: 30, w: 80, h: 40, zIndex: 1,
+                styles: { color: '#ffffff', outline: '#000000', font: 'sans', align: 'center', fontSize: 60, bold: false, italic: false }
             }]);
             const [selectedElementId, setSelectedElementId] = useState(customElements[0].id);
             const [dragMode, setDragMode] = useState(null); // 'move' | 'resize' | null
+            const [programEditMode, setProgramEditMode] = useState(false); // If true, we are editing a slide from program, not the scratchpad
             const stageRef = useRef(null);
             
             const [importStatus, setImportStatus] = useState('');
@@ -356,10 +377,11 @@
                 });
                 refreshLocalSongs();
                 refreshLocalThemes();
+                refreshOfflineBibles();
                 return () => unsubscribe();
             }, []);
 
-            // --- Theme Helpers ---
+            // --- IndexedDB Sync Helpers ---
             const refreshLocalThemes = async () => {
                 try {
                     const themes = await getThemesFromDB();
@@ -371,6 +393,15 @@
                     });
                     setLocalThemes(grouped);
                 } catch (e) { console.error("Error loading themes:", e); }
+            };
+
+            const refreshOfflineBibles = async () => {
+                try {
+                    const bibles = await getAllOfflineBibles();
+                    const bMap = {};
+                    bibles.forEach(b => bMap[b.id] = true);
+                    setOfflineBibles(bMap);
+                } catch(e) { console.error("Error refreshing offline bibles", e); }
             };
 
             const availableFolders = useMemo(() => {
@@ -425,28 +456,25 @@
                 if (!content) { container.innerHTML = ''; return; }
 
                 let html = '';
-                if (content.type === 'bible') {
+                if (content.type === 'bible' || content.type === 'program_bible') {
                     html = `<div class="center-content"><h1 class="font-serif leading-tight whitespace-pre-wrap fade-in" style="font-size: ${fontSize}px">${content.text}</h1><div class="text-4xl opacity-75 font-sans mt-8 uppercase tracking-widest border-t border-current pt-4 inline-block fade-in">${content.reference} <span class="text-sm align-top opacity-50 ml-2">${content.version}</span></div></div>`;
-                } else if (content.type === 'song') {
+                } else if (content.type === 'song' || content.type === 'program_song_slide') {
                     html = `<div class="center-content"><h1 class="font-sans font-bold leading-tight whitespace-pre-wrap fade-in" style="font-size: ${fontSize}px">${content.text}</h1>${content.title ? `<div class="fixed bottom-8 right-8 text-xl opacity-40 font-sans fade-in">${content.title}</div>` : ''}</div>`;
-                } else if (content.type === 'custom') {
+                } else if (content.type === 'custom' || content.type === 'program_custom') {
                     if (content.elements) {
-                         // New Multi-element rendering
-                         html = content.elements.map(el => {
+                         // Sort Z-Index
+                         const sorted = [...content.elements].sort((a,b) => (a.zIndex || 0) - (b.zIndex || 0));
+                         html = sorted.map(el => {
+                             if(el.type === 'image') {
+                                 return `<img src="${el.src}" class="custom-element fade-in" style="left:${el.x}%; top:${el.y}%; width:${el.w}%; height:${el.h}%; z-index:${el.zIndex||1}; object-fit: contain;">`;
+                             }
                              const s = el.styles;
-                             const shadow = s.outline ? `-1px -1px 0 ${s.outline}, 1px -1px 0 ${s.outline}, -1px 1px 0 ${s.outline}, 1px 1px 0 ${s.outline}` : '2px 2px 4px rgba(0,0,0,0.5)';
-                             const font = s.font === 'serif' ? 'Merriweather, serif' : s.font === 'mono' ? 'monospace' : 'Inter, sans-serif';
-                             // Use Left/Top % positioning
-                             return `<div class="custom-element fade-in" style="left:${el.x}%; top:${el.y}%; width:${el.w}%; color:${s.color}; text-align:${s.align}; font-family:${font}; font-size:${s.fontSize || fontSize}px; text-shadow:${shadow};">${el.text}</div>`;
+                             const shadow = getShadow(s.outline);
+                             const font = getFontFamily(s.font);
+                             const fw = s.bold ? 'bold' : 'normal';
+                             const fs = s.italic ? 'italic' : 'normal';
+                             return `<div class="custom-element fade-in" style="left:${el.x}%; top:${el.y}%; width:${el.w}%; color:${s.color}; text-align:${s.align}; font-family:${font}; font-weight:${fw}; font-style:${fs}; font-size:${s.fontSize || fontSize}px; text-shadow:${shadow}; z-index:${el.zIndex||1};">${el.text}</div>`;
                          }).join('');
-                    } else if (content.styles) {
-                        // Legacy single element
-                        const s = content.styles;
-                        const shadow = s.outline ? `-1px -1px 0 ${s.outline}, 1px -1px 0 ${s.outline}, -1px 1px 0 ${s.outline}, 1px 1px 0 ${s.outline}` : '2px 2px 4px rgba(0,0,0,0.5)';
-                        const font = s.font === 'serif' ? 'Merriweather, serif' : s.font === 'mono' ? 'monospace' : 'Inter, sans-serif';
-                        html = `<div class="custom-element fade-in" style="left:${s.x}%; top:${s.y}%; transform:translate(-50%, -50%); color:${s.color}; text-align:${s.align}; font-family:${font}; font-size:${fontSize}px; text-shadow:${shadow};">${content.text}</div>`;
-                    } else {
-                        html = `<div class="center-content"><h1 class="font-sans font-bold leading-tight whitespace-pre-wrap fade-in" style="font-size: ${fontSize}px">${content.text}</h1></div>`;
                     }
                 }
                 container.innerHTML = html;
@@ -536,8 +564,33 @@
             };
 
             const addToProgram = (item) => {
-                setProgram(prev => [...prev, { id: Date.now(), ...item }]);
-                alert("Added to Program!");
+                if (item.type === 'song') {
+                    // Split song into multiple slides
+                    const stanzas = item.fullText.split('\n\n').filter(t => t.trim().length > 0);
+                    const slides = stanzas.map(stanza => ({
+                        id: Date.now() + Math.random(),
+                        type: 'program_song_slide',
+                        text: stanza,
+                        title: item.title,
+                        desc: `Song: ${item.title} (Slide)`,
+                        originalSongId: item.originalId
+                    }));
+                    setProgram(prev => [...prev, ...slides]);
+                    alert(`Added ${slides.length} slides to Program!`);
+                } else if (item.type === 'custom') {
+                    // Clone deep for independence
+                    const clonedElements = JSON.parse(JSON.stringify(item.elements));
+                    setProgram(prev => [...prev, { 
+                        id: Date.now(), 
+                        type: 'program_custom', 
+                        elements: clonedElements, 
+                        desc: item.desc 
+                    }]);
+                    alert("Added Custom Slide to Program!");
+                } else {
+                    setProgram(prev => [...prev, { id: Date.now(), ...item, type: 'program_bible' }]); // Mark as program bible
+                    alert("Added to Program!");
+                }
             };
 
             const moveProgramItem = (index, direction) => {
@@ -549,6 +602,39 @@
                     [newProg[index], newProg[index+1]] = [newProg[index+1], newProg[index]];
                     setProgram(newProg);
                 }
+            };
+
+            const editProgramItem = (index) => {
+                const item = program[index];
+                if (item.type === 'program_song_slide' || item.type === 'program_bible') {
+                    // Simple text edit
+                    setTempProgramEditText(item.text);
+                    setEditingProgramItemIndex(index);
+                } else if (item.type === 'program_custom') {
+                    // Advanced edit
+                    setCustomElements(JSON.parse(JSON.stringify(item.elements)));
+                    setProgramEditMode(index); // Store index in mode
+                    setActiveTab('custom');
+                }
+            };
+
+            const saveProgramSimpleEdit = () => {
+                setProgram(prev => {
+                    const next = [...prev];
+                    next[editingProgramItemIndex].text = tempProgramEditText;
+                    return next;
+                });
+                setEditingProgramItemIndex(null);
+            };
+
+            const saveProgramCustomEdit = () => {
+                setProgram(prev => {
+                    const next = [...prev];
+                    next[programEditMode].elements = JSON.parse(JSON.stringify(customElements));
+                    return next;
+                });
+                setProgramEditMode(false);
+                alert("Program slide updated!");
             };
             
             const exportCurrentProgram = () => {
@@ -585,7 +671,7 @@
                 reader.readAsText(file);
             };
 
-            // --- Cloud Bible Functions ---
+            // --- Cloud/Offline Bible Functions ---
             const refreshCloudBibles = async () => {
                 if (!auth.currentUser) return; 
                 try {
@@ -595,6 +681,33 @@
                     setCloudBibles(bibles);
                 } catch (e) { console.error("Error fetching cloud bibles:", e); }
             }
+            
+            const handleDownloadBible = async (bibleId, bibleName) => {
+                if (offlineBibles[bibleId]) return;
+                if (!confirm(`Download "${bibleName}" for offline use?`)) return;
+                setLoadingBible(true);
+                try {
+                    const booksCol = collection(db, 'shared_bibles', bibleId, 'books');
+                    const snap = await getDocs(booksCol);
+                    const booksData = {};
+                    snap.forEach(doc => {
+                        booksData[doc.id] = doc.data().content;
+                    });
+                    
+                    await saveBibleToDB({
+                        id: bibleId,
+                        name: bibleName,
+                        books: booksData,
+                        downloadedAt: new Date().toISOString()
+                    });
+                    refreshOfflineBibles();
+                    alert(`${bibleName} downloaded!`);
+                } catch (e) {
+                    alert("Download failed: " + e.message);
+                } finally {
+                    setLoadingBible(false);
+                }
+            };
 
             const handleVerseNav = (direction) => {
                 let nextV = parseInt(bibleVerse);
@@ -606,39 +719,18 @@
 
             const fetchVerse = async (book = bibleBook, chapter = bibleChapter, verse = bibleVerse) => {
                 setLoadingBible(true);
-                const cloudBible = cloudBibles.find(b => b.id === bibleVersion);
-                if (cloudBible) {
-                    const cacheKey = `${bibleVersion}_${book}`;
-                    let bookContent = bibleCache[cacheKey];
-
-                    if (!bookContent) {
-                        try {
-                            const bookRef = doc(db, 'shared_bibles', bibleVersion, 'books', book);
-                            const bookSnap = await getDoc(bookRef);
-                            if (bookSnap.exists()) {
-                                bookContent = bookSnap.data().content;
-                                setBibleCache(prev => ({ ...prev, [cacheKey]: bookContent }));
-                            } else {
-                                setBiblePreview({ type: 'bible', text: "Book not found in this Cloud Bible.", reference: "Error", version: cloudBible.name });
-                                setLoadingBible(false);
-                                return;
-                            }
-                        } catch (e) {
-                            console.error(e);
-                            setBiblePreview({ type: 'bible', text: "Error loading book from Cloud.", reference: "Network Error", version: cloudBible.name });
-                            setLoadingBible(false);
-                            return;
-                        }
-                    }
-
+                
+                // 1. Check Offline DB first
+                const offlineBible = await getBibleFromDB(bibleVersion);
+                if (offlineBible) {
                     const cKey = parseInt(chapter).toString();
                     const vKey = parseInt(verse).toString();
-                    if (bookContent && bookContent[cKey] && bookContent[cKey][vKey]) {
-                        setBiblePreview({
+                    if (offlineBible.books && offlineBible.books[book] && offlineBible.books[book][cKey] && offlineBible.books[book][cKey][vKey]) {
+                         setBiblePreview({
                             type: 'bible',
-                            text: bookContent[cKey][vKey],
+                            text: offlineBible.books[book][cKey][vKey],
                             reference: `${book} ${cKey}:${vKey}`,
-                            version: cloudBible.name,
+                            version: offlineBible.name + " (Offline)",
                             desc: `Bible: ${book} ${cKey}:${vKey}`
                         });
                         setLoadingBible(false);
@@ -646,6 +738,32 @@
                     }
                 }
 
+                // 2. Check Cloud Cache/DB if logged in and cloud bible selected
+                const cloudBible = cloudBibles.find(b => b.id === bibleVersion);
+                if (cloudBible) {
+                    try {
+                        const bookRef = doc(db, 'shared_bibles', bibleVersion, 'books', book);
+                        const bookSnap = await getDoc(bookRef);
+                        if (bookSnap.exists()) {
+                            const content = bookSnap.data().content;
+                            const cKey = parseInt(chapter).toString();
+                            const vKey = parseInt(verse).toString();
+                            if (content[cKey] && content[cKey][vKey]) {
+                                setBiblePreview({
+                                    type: 'bible',
+                                    text: content[cKey][vKey],
+                                    reference: `${book} ${cKey}:${vKey}`,
+                                    version: cloudBible.name,
+                                    desc: `Bible: ${book} ${cKey}:${vKey}`
+                                });
+                                setLoadingBible(false);
+                                return;
+                            }
+                        }
+                    } catch (e) { console.error(e); }
+                }
+
+                // 3. Fallback to API
                 try {
                     const query = `${book}+${chapter}:${verse}`;
                     const response = await fetch(`https://bible-api.com/${query}?translation=${bibleVersion}`);
@@ -727,15 +845,34 @@
             };
 
             // --- Advanced Custom Slide Functions ---
-            const addCustomElement = () => {
+            const addCustomText = () => {
                 const newEl = {
                     id: Date.now(),
+                    type: 'text',
                     text: "New Text Box",
-                    x: 10, y: 10, w: 30, h: 20,
-                    styles: { color: '#ffffff', outline: '#000000', font: 'sans', align: 'left', fontSize: 60 }
+                    x: 10, y: 10, w: 30, h: 20, zIndex: customElements.length + 1,
+                    styles: { color: '#ffffff', outline: '#000000', font: 'sans', align: 'left', fontSize: 60, bold: false, italic: false }
                 };
                 setCustomElements(prev => [...prev, newEl]);
                 setSelectedElementId(newEl.id);
+            };
+
+            const addCustomImage = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    const newEl = {
+                        id: Date.now(),
+                        type: 'image',
+                        src: evt.target.result,
+                        x: 20, y: 20, w: 40, h: 40, zIndex: customElements.length + 1
+                    };
+                    setCustomElements(prev => [...prev, newEl]);
+                    setSelectedElementId(newEl.id);
+                };
+                reader.readAsDataURL(file);
+                e.target.value = '';
             };
 
             const deleteSelectedElement = () => {
@@ -750,6 +887,14 @@
 
             const updateSelectedStyle = (styleKey, value) => {
                 setCustomElements(prev => prev.map(el => el.id === selectedElementId ? { ...el, styles: { ...el.styles, [styleKey]: value } } : el));
+            };
+            
+            const changeLayer = (direction) => {
+                const el = customElements.find(e => e.id === selectedElementId);
+                if(!el) return;
+                const currentZ = el.zIndex || 1;
+                const newZ = direction === 'up' ? currentZ + 1 : Math.max(0, currentZ - 1);
+                updateSelectedElement({ zIndex: newZ });
             };
 
             // Drag and Resize Handlers
@@ -777,6 +922,7 @@
                 if (dragMode === 'move') {
                     updateSelectedElement({ x: elX + dx, y: elY + dy });
                 } else if (dragMode === 'resize') {
+                    // Aspect ratio for images? For now, free resize
                     updateSelectedElement({ w: Math.max(5, elW + dx), h: Math.max(5, elH + dy) });
                 }
             };
@@ -925,6 +1071,22 @@
             return React.createElement('div', { className: "flex flex-col h-screen bg-gray-900 text-gray-100 font-sans overflow-hidden" }, [
                 
                 internalLiveMode && liveContent && React.createElement(InternalOverlay, { content: liveContent, onClose: () => setInternalLiveMode(false), fontSize: fontSize, theme: theme, bgImage: backgroundImage }),
+                
+                // Simple Program Item Editor Overlay
+                editingProgramItemIndex !== null && React.createElement('div', { className: "fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" }, 
+                    React.createElement('div', { className: "bg-gray-800 p-6 rounded-lg w-full max-w-lg border border-gray-700 shadow-2xl" }, [
+                        React.createElement('h3', { className: "text-lg font-bold mb-4" }, "Edit Slide Content"),
+                        React.createElement('textarea', { 
+                            value: tempProgramEditText,
+                            onChange: e => setTempProgramEditText(e.target.value),
+                            className: "w-full h-48 bg-gray-900 border border-gray-600 rounded p-3 text-white mb-4"
+                        }),
+                        React.createElement('div', { className: "flex justify-end space-x-2" }, [
+                            React.createElement('button', { onClick: () => setEditingProgramItemIndex(null), className: "px-4 py-2 bg-gray-700 rounded text-gray-300" }, "Cancel"),
+                            React.createElement('button', { onClick: saveProgramSimpleEdit, className: "px-4 py-2 bg-blue-600 rounded text-white" }, "Save Changes")
+                        ])
+                    ])
+                ),
 
                 React.createElement('header', { className: "flex items-center justify-between px-6 py-3 bg-gray-950 border-b border-gray-800 shrink-0" }, [
                     React.createElement('div', { className: "flex items-center space-x-3" }, [
@@ -1009,13 +1171,14 @@
                                         ]),
                                         React.createElement('div', { className: "flex-1 cursor-pointer", onClick: () => projectContent(item) }, [
                                             React.createElement('div', { className: "flex items-center" }, [
-                                                React.createElement('span', { className: "px-2 py-0.5 rounded text-[10px] uppercase font-bold mr-3 " + (item.type === 'bible' ? 'bg-yellow-900 text-yellow-200' : item.type === 'song' ? 'bg-blue-900 text-blue-200' : 'bg-purple-900 text-purple-200') }, item.type),
+                                                React.createElement('span', { className: "px-2 py-0.5 rounded text-[10px] uppercase font-bold mr-3 " + (item.type.includes('bible') ? 'bg-yellow-900 text-yellow-200' : item.type.includes('song') ? 'bg-blue-900 text-blue-200' : 'bg-purple-900 text-purple-200') }, item.type.replace('program_', '')),
                                                 React.createElement('span', { className: "font-medium" }, item.desc || (item.title ? item.title : "Custom Slide"))
                                             ]),
-                                            React.createElement('div', { className: "text-sm text-gray-400 mt-1 truncate max-w-xl" }, item.text ? item.text.substring(0, 100) + "..." : (item.elements ? item.elements.map(e => e.text).join(' ').substring(0, 100) + "..." : ""))
+                                            React.createElement('div', { className: "text-sm text-gray-400 mt-1 truncate max-w-xl" }, item.text ? item.text.substring(0, 100) + "..." : (item.elements ? item.elements.map(e => e.type === 'image' ? '[Image]' : e.text).join(' ').substring(0, 100) + "..." : ""))
                                         ]),
                                         React.createElement('div', { className: "flex space-x-2" }, [
                                             React.createElement('button', { onClick: () => projectContent(item), className: "px-4 py-2 bg-green-700 hover:bg-green-600 text-white rounded-lg text-sm font-medium flex items-center" }, [ React.createElement(Play, { size: 16, className: "mr-2" }), "Live" ]),
+                                            React.createElement('button', { onClick: () => editProgramItem(idx), className: "p-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-medium", title: "Edit Slide" }, React.createElement(Edit3, { size: 16 })),
                                             React.createElement('button', { onClick: () => setProgram(p => p.filter((_, i) => i !== idx)), className: "p-2 hover:bg-red-900/30 text-gray-500 hover:text-red-400 rounded-lg" }, React.createElement(X, { size: 20 }))
                                         ])
                                     ])
@@ -1036,10 +1199,16 @@
                                         React.createElement('div', {}, [ React.createElement('label', { className: "block text-sm font-medium text-gray-400 mb-1" }, "Verse"), React.createElement('input', { type: "number", value: bibleVerse, onChange: (e) => setBibleVerse(e.target.value), className: "w-full bg-gray-800 border-gray-700 rounded-lg text-white p-2 outline-none" }) ])
                                     ]),
                                     React.createElement('div', { className: "col-span-2" }, [
-                                        React.createElement('label', { className: "block text-sm font-medium text-gray-400 mb-1 flex justify-between" }, ["Translation", React.createElement('span', { className: "text-xs text-blue-400"}, "Green = Cloud Shared")]),
+                                        React.createElement('label', { className: "block text-sm font-medium text-gray-400 mb-1 flex justify-between" }, ["Translation", React.createElement('span', { className: "text-xs text-blue-400"}, "Green = Cloud, Check = Offline")]),
                                         React.createElement('div', { className: "flex flex-wrap gap-2" }, [
                                             ...BIBLE_VERSIONS.map(v => React.createElement('button', { key: v.id, onClick: () => setBibleVersion(v.id), className: `flex-1 py-2 px-3 text-sm rounded-lg border min-w-[120px] ${bibleVersion === v.id ? 'bg-blue-600 border-blue-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}` }, v.name)),
-                                            ...cloudBibles.map(v => React.createElement('button', { key: v.id, onClick: () => setBibleVersion(v.id), className: `flex-1 py-2 px-3 text-sm rounded-lg border min-w-[120px] ${bibleVersion === v.id ? 'bg-green-600 border-green-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}` }, [ React.createElement(Cloud, { size: 12, className: "inline mr-1" }), v.name ]))
+                                            ...cloudBibles.map(v => React.createElement('div', { key: v.id, className: "relative flex-1 min-w-[140px]" }, [
+                                                React.createElement('button', { onClick: () => setBibleVersion(v.id), className: `w-full h-full py-2 px-3 text-sm rounded-lg border flex items-center justify-center ${bibleVersion === v.id ? 'bg-green-600 border-green-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:bg-gray-700'}` }, [ 
+                                                    offlineBibles[v.id] ? React.createElement(CheckCircle, { size: 12, className: "inline mr-1 text-green-300" }) : React.createElement(Cloud, { size: 12, className: "inline mr-1" }), 
+                                                    v.name 
+                                                ]),
+                                                !offlineBibles[v.id] && React.createElement('button', { onClick: (e) => { e.stopPropagation(); handleDownloadBible(v.id, v.name); }, className: "absolute -top-2 -right-2 p-1 bg-gray-700 rounded-full hover:bg-gray-600 border border-gray-500 shadow-sm", title: "Download Offline" }, React.createElement(Download, { size: 10 }))
+                                            ]))
                                         ])
                                     ])
                                 ]),
@@ -1093,7 +1262,7 @@
                                         React.createElement('div', { className: "flex justify-between items-start mb-4" }, [ 
                                             React.createElement('h2', { className: "text-xl font-bold" }, selectedSong.title),
                                             React.createElement('div', { className: "flex space-x-2" }, [ 
-                                                React.createElement('button', { onClick: () => addToProgram({ type: 'song', text: selectedSong.lyrics.split('\n\n')[0] + "...", fullText: selectedSong.lyrics, title: selectedSong.title, desc: "Song: " + selectedSong.title }), className: "p-2 text-gray-400 hover:text-white bg-gray-800 rounded-lg" }, React.createElement(List, { size: 16 })),
+                                                React.createElement('button', { onClick: () => addToProgram({ type: 'song', text: '', fullText: selectedSong.lyrics, title: selectedSong.title, desc: "Song: " + selectedSong.title, originalId: selectedSong.id }), className: "p-2 text-gray-400 hover:text-white bg-gray-800 rounded-lg" }, React.createElement(List, { size: 16 })),
                                                 React.createElement('button', { onClick: () => { setIsEditingSong(true); setNewSongTitle(selectedSong.title); setNewSongArtist(selectedSong.artist || ''); setNewSongLyrics(selectedSong.lyrics); }, className: "p-2 text-gray-400 hover:text-white" }, React.createElement(Edit3, { size: 16 })), 
                                                 React.createElement('button', { onClick: () => { if(confirm('Delete?')) { deleteSongFromDB(selectedSong.id); setSelectedSong(null); refreshLocalSongs(); } }, className: "p-2 text-gray-400 hover:text-red-500" }, React.createElement(Trash2, { size: 16 })) 
                                             ]) 
@@ -1103,37 +1272,55 @@
                                 ])
                             ]),
 
-                            // CUSTOM TAB (REVISED FOR MULTIPLE ELEMENTS + RESIZE)
+                            // CUSTOM TAB (REVISED FOR MULTIPLE ELEMENTS + RESIZE + IMAGES)
                             React.createElement('div', { className: activeTab === 'custom' ? "max-w-4xl mx-auto w-full space-y-4 animate-in fade-in duration-200 h-full flex flex-col" : "hidden-tab" }, [
                                 // Top Toolbar
                                 React.createElement('div', { className: "bg-gray-800 p-2 rounded-lg border border-gray-700 flex items-center space-x-4 overflow-x-auto" }, [
                                     React.createElement('div', { className: "flex items-center space-x-2 border-r border-gray-600 pr-4" }, [
-                                        React.createElement('button', { onClick: addCustomElement, className: "flex items-center px-3 py-1 bg-green-700 hover:bg-green-600 text-white rounded text-sm" }, [ React.createElement(Plus, { size: 14, className: "mr-1" }), "Text Box" ]),
+                                        React.createElement('button', { onClick: addCustomText, className: "flex items-center px-3 py-1 bg-green-700 hover:bg-green-600 text-white rounded text-sm" }, [ React.createElement(TypeIcon, { size: 14, className: "mr-1" }), "Text" ]),
+                                        React.createElement('label', { className: "flex items-center px-3 py-1 bg-purple-700 hover:bg-purple-600 text-white rounded text-sm cursor-pointer" }, [ 
+                                            React.createElement(ImageIcon, { size: 14, className: "mr-1" }), "Img",
+                                            React.createElement('input', { type: 'file', accept: 'image/*', className: 'hidden', onChange: addCustomImage })
+                                        ]),
                                         React.createElement('button', { onClick: deleteSelectedElement, className: "p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-900/20 rounded" }, React.createElement(Trash2, { size: 16 }))
                                     ]),
+                                    
+                                    // Layering
                                     React.createElement('div', { className: "flex items-center space-x-1 border-r border-gray-600 pr-4" }, [
-                                        React.createElement('button', { onClick: () => updateSelectedStyle('align', 'left'), className: `p-2 rounded ${selectedElement.styles.align === 'left' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}` }, React.createElement(AlignLeft, { size: 18 })),
-                                        React.createElement('button', { onClick: () => updateSelectedStyle('align', 'center'), className: `p-2 rounded ${selectedElement.styles.align === 'center' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}` }, React.createElement(AlignCenter, { size: 18 })),
-                                        React.createElement('button', { onClick: () => updateSelectedStyle('align', 'right'), className: `p-2 rounded ${selectedElement.styles.align === 'right' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}` }, React.createElement(AlignRight, { size: 18 })),
+                                        React.createElement('span', { className: "text-xs text-gray-500 mr-1" }, "Layer"),
+                                        React.createElement('button', { onClick: () => changeLayer('down'), className: "p-1.5 hover:bg-gray-700 rounded text-gray-400" }, React.createElement(MinusCircle, { size: 16 })),
+                                        React.createElement('button', { onClick: () => changeLayer('up'), className: "p-1.5 hover:bg-gray-700 rounded text-gray-400" }, React.createElement(Plus, { size: 16 })),
                                     ]),
-                                    React.createElement('div', { className: "flex items-center space-x-2 border-r border-gray-600 pr-4" }, [
-                                        React.createElement(TypeIcon, { size: 18, className: "text-gray-400" }),
-                                        React.createElement('select', { value: selectedElement.styles.font, onChange: (e) => updateSelectedStyle('font', e.target.value), className: "bg-gray-900 border border-gray-700 text-white text-sm rounded p-1" }, [
-                                            React.createElement('option', { value: "sans" }, "Sans Serif"),
-                                            React.createElement('option', { value: "serif" }, "Serif"),
-                                            React.createElement('option', { value: "mono" }, "Monospace"),
+
+                                    // Text Controls (Conditional)
+                                    selectedElement.type === 'text' && React.createElement(React.Fragment, {}, [
+                                        React.createElement('div', { className: "flex items-center space-x-1 border-r border-gray-600 pr-4" }, [
+                                            React.createElement('button', { onClick: () => updateSelectedStyle('align', 'left'), className: `p-2 rounded ${selectedElement.styles.align === 'left' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}` }, React.createElement(AlignLeft, { size: 18 })),
+                                            React.createElement('button', { onClick: () => updateSelectedStyle('align', 'center'), className: `p-2 rounded ${selectedElement.styles.align === 'center' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}` }, React.createElement(AlignCenter, { size: 18 })),
+                                            React.createElement('button', { onClick: () => updateSelectedStyle('align', 'right'), className: `p-2 rounded ${selectedElement.styles.align === 'right' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}` }, React.createElement(AlignRight, { size: 18 })),
                                         ]),
-                                        React.createElement('input', { type: "number", min: "10", max: "200", value: selectedElement.styles.fontSize || fontSize, onChange: (e) => updateSelectedStyle('fontSize', e.target.value), className: "w-16 bg-gray-900 border border-gray-700 text-white text-sm rounded p-1" }),
-                                    ]),
-                                    React.createElement('div', { className: "flex items-center space-x-2" }, [
-                                        React.createElement(Palette, { size: 18, className: "text-gray-400" }),
-                                        React.createElement('div', { className: "flex items-center space-x-1" }, [
-                                            React.createElement('span', { className: "text-xs text-gray-500" }, "Color"),
-                                            React.createElement('input', { type: "color", value: selectedElement.styles.color, onChange: (e) => updateSelectedStyle('color', e.target.value), className: "w-6 h-6 rounded cursor-pointer bg-transparent" })
+                                        React.createElement('div', { className: "flex items-center space-x-2 border-r border-gray-600 pr-4" }, [
+                                            React.createElement('select', { value: selectedElement.styles.font, onChange: (e) => updateSelectedStyle('font', e.target.value), className: "bg-gray-900 border border-gray-700 text-white text-sm rounded p-1 w-24" }, 
+                                                FONT_OPTIONS.map(f => React.createElement('option', { key: f.id, value: f.id }, f.name))
+                                            ),
+                                            React.createElement('input', { type: "number", min: "10", max: "200", value: selectedElement.styles.fontSize || fontSize, onChange: (e) => updateSelectedStyle('fontSize', e.target.value), className: "w-14 bg-gray-900 border border-gray-700 text-white text-sm rounded p-1" }),
                                         ]),
-                                        React.createElement('div', { className: "flex items-center space-x-1" }, [
-                                            React.createElement('span', { className: "text-xs text-gray-500" }, "Outline"),
-                                            React.createElement('input', { type: "color", value: selectedElement.styles.outline, onChange: (e) => updateSelectedStyle('outline', e.target.value), className: "w-6 h-6 rounded cursor-pointer bg-transparent" })
+                                        React.createElement('div', { className: "flex items-center space-x-2 border-r border-gray-600 pr-4" }, [
+                                            React.createElement('button', { onClick: () => updateSelectedStyle('bold', !selectedElement.styles.bold), className: `p-1.5 rounded ${selectedElement.styles.bold ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}` }, React.createElement(Bold, { size: 16 })),
+                                            React.createElement('button', { onClick: () => updateSelectedStyle('italic', !selectedElement.styles.italic), className: `p-1.5 rounded ${selectedElement.styles.italic ? 'bg-blue-600 text-white' : 'text-gray-400 hover:bg-gray-700'}` }, React.createElement(Italic, { size: 16 })),
+                                        ]),
+                                        React.createElement('div', { className: "flex items-center space-x-2" }, [
+                                            React.createElement('div', { className: "flex items-center space-x-1" }, [
+                                                React.createElement('span', { className: "text-xs text-gray-500" }, "Color"),
+                                                React.createElement('input', { type: "color", value: selectedElement.styles.color, onChange: (e) => updateSelectedStyle('color', e.target.value), className: "w-6 h-6 rounded cursor-pointer bg-transparent" })
+                                            ]),
+                                            React.createElement('div', { className: "flex items-center space-x-1" }, [
+                                                React.createElement('span', { className: "text-xs text-gray-500" }, "Outline"),
+                                                React.createElement('div', { className: "flex items-center space-x-1" }, [
+                                                    React.createElement('input', { type: "checkbox", checked: selectedElement.styles.outline === 'none', onChange: (e) => updateSelectedStyle('outline', e.target.checked ? 'none' : '#000000') }),
+                                                    selectedElement.styles.outline !== 'none' && React.createElement('input', { type: "color", value: selectedElement.styles.outline, onChange: (e) => updateSelectedStyle('outline', e.target.value), className: "w-6 h-6 rounded cursor-pointer bg-transparent" })
+                                                ])
+                                            ])
                                         ])
                                     ])
                                 ]),
@@ -1148,42 +1335,46 @@
                                         !backgroundImage && React.createElement('div', { className: "absolute inset-0 flex items-center justify-center pointer-events-none opacity-20" }, React.createElement('span', { className: "text-6xl font-bold text-gray-700" }, "16:9 PREVIEW")),
                                         // Render Elements
                                         customElements.map(el => {
-                                            const s = el.styles;
                                             const isSelected = el.id === selectedElementId;
-                                            const shadow = s.outline ? `-1px -1px 0 ${s.outline}, 1px -1px 0 ${s.outline}, -1px 1px 0 ${s.outline}, 1px 1px 0 ${s.outline}` : 'none';
-                                            const font = s.font === 'serif' ? 'Merriweather, serif' : s.font === 'mono' ? 'monospace' : 'Inter, sans-serif';
+                                            
+                                            // Render Image
+                                            if (el.type === 'image') {
+                                                return React.createElement('div', {
+                                                    key: el.id,
+                                                    className: `editor-element ${isSelected ? 'selected' : ''}`,
+                                                    style: { left: `${el.x}%`, top: `${el.y}%`, width: `${el.w}%`, height: `${el.h}%`, zIndex: el.zIndex || 1 },
+                                                    onMouseDown: (e) => handleStageMouseDown(e, el.id, 'move')
+                                                }, [
+                                                    React.createElement('img', { src: el.src, className: "w-full h-full object-contain pointer-events-none" }),
+                                                    React.createElement('div', { className: "resize-handle", onMouseDown: (e) => handleStageMouseDown(e, el.id, 'resize') })
+                                                ]);
+                                            }
+
+                                            // Render Text
+                                            const s = el.styles;
+                                            const shadow = getShadow(s.outline);
+                                            const font = getFontFamily(s.font);
                                             
                                             return React.createElement('div', {
                                                 key: el.id,
                                                 className: `editor-element ${isSelected ? 'selected' : ''}`,
                                                 style: {
-                                                    left: `${el.x}%`,
-                                                    top: `${el.y}%`,
-                                                    width: `${el.w}%`,
-                                                    height: el.h ? `${el.h}%` : 'auto',
-                                                    color: s.color,
-                                                    textAlign: s.align,
-                                                    fontFamily: font,
+                                                    left: `${el.x}%`, top: `${el.y}%`, width: `${el.w}%`, height: el.h ? `${el.h}%` : 'auto',
+                                                    color: s.color, textAlign: s.align, fontFamily: font, fontWeight: s.bold ? 'bold' : 'normal', fontStyle: s.italic ? 'italic' : 'normal',
                                                     fontSize: `${(s.fontSize || fontSize) * 0.5}px`, // Scale down for preview
-                                                    textShadow: shadow,
-                                                    whiteSpace: 'pre-wrap',
-                                                    wordWrap: 'break-word'
+                                                    textShadow: shadow, whiteSpace: 'pre-wrap', wordWrap: 'break-word', zIndex: el.zIndex || 1
                                                 },
                                                 onMouseDown: (e) => handleStageMouseDown(e, el.id, 'move')
                                             }, [
                                                 el.text,
-                                                // Resize Handle (Only visible when selected via CSS)
-                                                React.createElement('div', { 
-                                                    className: "resize-handle",
-                                                    onMouseDown: (e) => handleStageMouseDown(e, el.id, 'resize')
-                                                })
+                                                React.createElement('div', { className: "resize-handle", onMouseDown: (e) => handleStageMouseDown(e, el.id, 'resize') })
                                             ]);
                                         })
                                     ])
                                 ]),
 
                                 // Text Input for Selected Element
-                                React.createElement('div', { className: "space-y-2" }, [
+                                selectedElement.type === 'text' && React.createElement('div', { className: "space-y-2" }, [
                                     React.createElement('div', { className: "flex justify-between items-center" }, [
                                         React.createElement('span', { className: "text-xs text-gray-500 font-medium" }, "EDIT SELECTED TEXT"),
                                         React.createElement('span', { className: "text-xs text-gray-600" }, "Use Enter for new lines")
@@ -1198,8 +1389,11 @@
 
                                 // Actions
                                 React.createElement('div', { className: "flex justify-end space-x-3 pt-2 border-t border-gray-800" }, [
+                                    programEditMode !== false ? 
+                                    React.createElement('button', { onClick: saveProgramCustomEdit, className: "flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-500" }, [React.createElement(Save, { size: 18, className: "mr-2" }), "Update Program Item"]) :
                                     React.createElement('button', { onClick: () => addToProgram({ type: 'custom', elements: customElements, desc: "Custom Slide (" + customElements.length + " items)" }), className: "flex items-center px-6 py-3 bg-gray-700 text-white rounded-lg hover:bg-gray-600" }, [React.createElement(Plus, { size: 18, className: "mr-2" }), "Add to Program"]),
-                                    React.createElement('button', { onClick: () => projectContent({ type: 'custom', elements: customElements }), className: "flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-500" }, [React.createElement(Monitor, { size: 18, className: "mr-2" }), "Project Slide"])
+                                    
+                                    React.createElement('button', { onClick: () => projectContent({ type: 'custom', elements: customElements }), className: "flex items-center px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-500" }, [React.createElement(Monitor, { size: 18, className: "mr-2" }), "Project Slide"])
                                 ])
                             ]),
 
@@ -1274,18 +1468,6 @@
                                             React.createElement('input', { type: "file", accept: ".xml", className: "hidden", onChange: handleBibleImportToCloud })
                                         ]),
                                     ]),
-                                    cloudBibles.length > 0 && React.createElement('div', { className: "mt-4" }, [
-                                        React.createElement('h3', { className: "text-sm font-semibold text-gray-500 mb-2 uppercase" }, "Shared Cloud Bibles"),
-                                        React.createElement('ul', { className: "space-y-2" }, cloudBibles.map(b => 
-                                            React.createElement('li', { key: b.id, className: "flex items-center justify-between p-3 bg-gray-800 rounded-lg border border-gray-700" }, [
-                                                React.createElement('div', { className: "flex items-center" }, [
-                                                    React.createElement(Cloud, { size: 16, className: "text-green-500 mr-2" }),
-                                                    React.createElement('span', { className: "font-medium" }, b.name),
-                                                ]),
-                                                React.createElement('span', { className: "text-xs text-gray-500" }, "Shared")
-                                            ])
-                                        ))
-                                    ])
                                 ])
                             ])
                         ]),
@@ -1310,37 +1492,34 @@
                                 }, liveContent ? [
                                     backgroundImage && React.createElement('div', { className: "absolute inset-0 bg-black/40" }),
                                     // Live Preview Custom Render
-                                    liveContent.type === 'custom'
+                                    (liveContent.type === 'custom' || liveContent.type === 'program_custom')
                                     ? (liveContent.elements ?
-                                        liveContent.elements.map(el => {
+                                        [...liveContent.elements].sort((a,b)=>(a.zIndex||0)-(b.zIndex||0)).map(el => {
+                                            if(el.type === 'image') {
+                                                return React.createElement('img', {
+                                                    key: el.id, src: el.src,
+                                                    style: { position: 'absolute', left: `${el.x}%`, top: `${el.y}%`, width: `${el.w}%`, height: `${el.h}%`, zIndex: el.zIndex||1, objectFit: 'contain' }
+                                                });
+                                            }
                                             const s = el.styles;
-                                            const shadow = s.outline ? `-1px -1px 0 ${s.outline}, 1px -1px 0 ${s.outline}` : 'none';
-                                            const font = s.font === 'serif' ? 'Merriweather, serif' : s.font === 'mono' ? 'monospace' : 'Inter, sans-serif';
+                                            const shadow = getShadow(s.outline);
+                                            const font = getFontFamily(s.font);
                                             return React.createElement('div', {
                                                 key: el.id,
                                                 style: {
                                                     position: 'absolute',
                                                     left: `${el.x}%`, top: `${el.y}%`, width: `${el.w}%`, height: el.h ? `${el.h}%` : 'auto',
-                                                    color: s.color, textAlign: s.align, fontFamily: font,
+                                                    color: s.color, textAlign: s.align, fontFamily: font, fontWeight: s.bold?'bold':'normal', fontStyle: s.italic?'italic':'normal',
                                                     fontSize: 'clamp(8px, 1.5vw, 24px)', // Scale down for preview
-                                                    whiteSpace: 'pre-wrap', textShadow: shadow, zIndex: 10
+                                                    whiteSpace: 'pre-wrap', textShadow: shadow, zIndex: el.zIndex||1
                                                 }
                                             }, el.text)
                                         })
-                                        : // Legacy
-                                        React.createElement('div', {
-                                            style: {
-                                                position: 'absolute',
-                                                left: `${liveContent.styles.x}%`, top: `${liveContent.styles.y}%`,
-                                                transform: 'translate(-50%, -50%)', color: liveContent.styles.color,
-                                                textAlign: liveContent.styles.align, fontFamily: 'Inter, sans-serif',
-                                                fontSize: 'clamp(8px, 1.5vw, 24px)', whiteSpace: 'pre-wrap', zIndex: 10
-                                            }
-                                        }, liveContent.text)
+                                        : null
                                     )
                                     : [
                                         React.createElement('div', { style: { fontSize: 'clamp(8px, 2vw, 14px)', whiteSpace: 'pre-wrap', lineHeight: '1.2', zIndex: 10, padding: '1rem' }, className: "font-bold relative" }, liveContent.text),
-                                        liveContent.type === 'bible' && React.createElement('div', { className: "mt-2 text-[8px] opacity-75 border-t border-current pt-1 relative z-10" }, liveContent.reference)
+                                        (liveContent.type === 'bible' || liveContent.type === 'program_bible') && React.createElement('div', { className: "mt-2 text-[8px] opacity-75 border-t border-current pt-1 relative z-10" }, liveContent.reference)
                                     ]
                                 ] : React.createElement('div', { className: "text-gray-500 text-xs" }, "OFF AIR (Black)"))
                             ),
