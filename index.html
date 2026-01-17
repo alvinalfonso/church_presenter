@@ -192,6 +192,7 @@
         const getAllOfflineBibles = () => getFromDB('offline_bibles');
 
         // --- Projector Window ---
+        // EDITED: Fixed aspect ratio container (1920x1080) with auto-scaling to ensure exact alignment
         const PROJECTOR_HTML_TEMPLATE = `
             <!DOCTYPE html>
             <html lang="en">
@@ -201,15 +202,36 @@
                 <script src="https://cdn.tailwindcss.com"><\/script>
                 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&family=Oswald:wght@400;700&family=Lato:wght@400;700;900&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Open+Sans:ital,wght@0,400;0,700;1,400&family=Roboto:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
                 <style>
-                    body { margin: 0; padding: 0; overflow: hidden; background-color: black; height: 100vh; width: 100vw; display: flex; justify-content: center; align-items: center; background-size: cover; background-position: center; transition: background-image 0.5s ease-in-out; }
-                    #slide-container { width: 100%; height: 100%; position: relative; }
-                    .center-content { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; height: 100%; padding: 4rem; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }
+                    body { margin: 0; padding: 0; overflow: hidden; background-color: #000; height: 100vh; width: 100vw; display: flex; justify-content: center; align-items: center; }
+                    /* Reference 16:9 Canvas (1920x1080) used to ensure strict positional alignment */
+                    #slide-view { 
+                        width: 1920px; height: 1080px; 
+                        position: relative; 
+                        background-color: transparent; 
+                        background-size: cover; background-position: center; 
+                        flex-shrink: 0; 
+                        transform-origin: center center; 
+                        overflow: hidden;
+                    }
+                    .center-content { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; height: 100%; width: 100%; padding: 4rem; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); box-sizing: border-box; }
                     .fade-in { animation: fadeIn 0.5s ease-out forwards; }
                     @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
                     .custom-element { position: absolute; white-space: pre-wrap; word-wrap: break-word; }
                 </style>
+                <script>
+                    function fitSlide() {
+                        const slide = document.getElementById('slide-view');
+                        if(!slide) return;
+                        const targetW = 1920, targetH = 1080;
+                        const winW = window.innerWidth, winH = window.innerHeight;
+                        const scale = Math.min(winW / targetW, winH / targetH);
+                        slide.style.transform = 'scale(' + scale + ')';
+                    }
+                    window.addEventListener('resize', fitSlide);
+                    window.addEventListener('DOMContentLoaded', fitSlide);
+                <\/script>
             </head>
-            <body><div id="slide-container"></div></body>
+            <body><div id="slide-view"></div></body>
             </html>
         `;
 
@@ -438,7 +460,8 @@
                     win.document.write(PROJECTOR_HTML_TEMPLATE);
                     win.document.close();
                     projectorWindowRef.current = win;
-                    updateProjector(liveContent);
+                    // Trigger initial update after a short delay to ensure DOM is ready
+                    setTimeout(() => updateProjector(liveContent), 100);
                 } else { alert("Pop-up blocked!"); }
             };
 
@@ -446,19 +469,25 @@
                 const win = projectorWindowRef.current;
                 if (!win || win.closed) return;
                 const doc = win.document;
-                const container = doc.getElementById('slide-container');
+                const container = doc.getElementById('slide-view'); // Fixed targeting
                 const body = doc.body;
                 if (!container) return; 
 
+                // Force scale update
+                if (win.fitSlide) win.fitSlide();
+
+                // EDITED: Apply background to container instead of body to match editor aspect ratio crop
                 if (backgroundImage) {
-                    body.style.backgroundImage = `url("${backgroundImage}")`;
-                    body.style.backgroundColor = 'black';
+                    container.style.backgroundImage = `url("${backgroundImage}")`;
+                    container.style.backgroundColor = 'transparent';
                     container.style.color = 'white';
-                } else {
                     body.style.backgroundImage = 'none';
-                    if (theme === 'white') { body.style.backgroundColor = 'white'; container.style.color = 'black'; }
-                    else if (theme === 'blue') { body.style.backgroundColor = '#1e3a8a'; container.style.color = 'white'; }
-                    else { body.style.backgroundColor = 'black'; container.style.color = 'white'; }
+                } else {
+                    container.style.backgroundImage = 'none';
+                    body.style.backgroundImage = 'none';
+                    if (theme === 'white') { container.style.backgroundColor = 'white'; container.style.color = 'black'; }
+                    else if (theme === 'blue') { container.style.backgroundColor = '#1e3a8a'; container.style.color = 'white'; }
+                    else { container.style.backgroundColor = 'black'; container.style.color = 'white'; }
                 }
 
                 if (!content) { container.innerHTML = ''; return; }
