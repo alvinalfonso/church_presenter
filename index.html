@@ -72,9 +72,9 @@
             FolderInput, FileText, Database, Download, List, Image as ImageIcon,
             ArrowUp, ArrowDown, LogIn, LogOut, Upload, Cloud, Archive, Share2,
             FilePlus, Copy, HardDrive, Move, AlignLeft, AlignCenter, AlignRight,
-            Type as TypeIcon, Palette, MousePointer2, Scaling, Layers,
+            Palette, MousePointer2, Scaling, Layers,
             Bold, Italic, MinusCircle, CheckCircle, WifiOff, Crop,
-            ArrowUpFromLine, ArrowDownFromLine, Split
+            ArrowUpFromLine, ArrowDownFromLine, Split, Merge
         } from 'https://esm.sh/lucide-react@0.292.0';
         
         // Firebase Imports
@@ -593,13 +593,15 @@
 
             const addToProgram = (item) => {
                 if (item.type === 'song') {
-                    // Changed: Add as a group that can be broken down later
+                    const groupId = Date.now().toString(); // Generate unique group ID
                     setProgram(prev => [...prev, {
-                        id: Date.now(),
+                        id: groupId, 
                         type: 'program_song_group',
                         title: item.title,
                         fullText: item.fullText,
-                        desc: `Song Group: ${item.title}`
+                        desc: `Song Group: ${item.title}`,
+                        groupId: groupId, // Store Group ID
+                        originalId: item.originalId || item.id // Store Original ID
                     }]);
                     alert(`Added "${item.title}" to Program (Group).`);
                 } else if (item.type === 'custom') {
@@ -621,15 +623,51 @@
                 const item = program[index];
                 if (item.type !== 'program_song_group') return;
                 const stanzas = item.fullText.split('\n\n').filter(t => t.trim().length > 0);
-                const slides = stanzas.map(stanza => ({
+                const slides = stanzas.map((stanza, i) => ({
                     id: Date.now() + Math.random(),
                     type: 'program_song_slide',
                     text: stanza,
                     title: item.title,
-                    desc: `Song: ${item.title} (Slide)`
+                    desc: `Song: ${item.title} (Slide ${i+1})`,
+                    // Persistence for regrouping and export
+                    groupId: item.groupId || item.id, 
+                    fullText: item.fullText,
+                    originalId: item.originalId,
+                    isFirstSlide: i === 0 
                 }));
                 const newProg = [...program];
                 newProg.splice(index, 1, ...slides);
+                setProgram(newProg);
+            };
+
+            const regroupSong = (groupId) => {
+                const slides = program.filter(p => p.groupId === groupId);
+                if (slides.length === 0) return;
+                
+                // Recover data from the first slide found
+                const ref = slides[0];
+                const groupItem = {
+                    id: groupId,
+                    type: 'program_song_group',
+                    title: ref.title,
+                    fullText: ref.fullText,
+                    desc: `Song Group: ${ref.title}`,
+                    groupId: groupId,
+                    originalId: ref.originalId
+                };
+
+                // Find index of first slide in current program to insert group there
+                const firstIndex = program.findIndex(p => p.groupId === groupId);
+                
+                // Filter out all slides of this group
+                const newProg = program.filter(p => p.groupId !== groupId);
+                
+                // Insert group item at the position of the first slide
+                if (firstIndex >= 0) {
+                    newProg.splice(firstIndex, 0, groupItem);
+                } else {
+                    newProg.push(groupItem); // Fallback
+                }
                 setProgram(newProg);
             };
 
@@ -1262,6 +1300,11 @@
                                             React.createElement('div', { className: "text-sm text-gray-400 mt-1 truncate max-w-xl" }, item.text ? item.text.substring(0, 100) + "..." : (item.elements ? item.elements.map(e => e.type === 'image' ? '[Image]' : e.text).join(' ').substring(0, 100) + "..." : (item.type === 'program_song_group' ? 'Song Group (Click breakdown to expand)' : '')))
                                         ]),
                                         React.createElement('div', { className: "flex space-x-2" }, [
+                                            // Show Regroup Button for slides with grouping data
+                                            (item.type === 'program_song_slide' && item.groupId && item.fullText) ? 
+                                            React.createElement('button', { onClick: () => regroupSong(item.groupId), className: "p-2 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-200 rounded-lg text-sm font-medium flex items-center mr-2 border border-indigo-900", title: "Regroup into Song" }, React.createElement(Merge, { size: 16 })) 
+                                            : null,
+
                                             item.type === 'program_song_group' ? 
                                             React.createElement('button', { onClick: () => breakdownSong(idx), className: "px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium flex items-center" }, [ React.createElement(Split, { size: 16, className: "mr-2" }), "Breakdown" ])
                                             : React.createElement('button', { onClick: () => projectContent(item), className: "px-4 py-2 bg-green-700 hover:bg-green-600 text-white rounded-lg text-sm font-medium flex items-center" }, [ React.createElement(Play, { size: 16, className: "mr-2" }), "Live" ]),
@@ -1365,7 +1408,7 @@
                                 // Top Toolbar
                                 React.createElement('div', { className: "bg-gray-800 p-2 rounded-lg border border-gray-700 flex items-center space-x-4 overflow-x-auto" }, [
                                     React.createElement('div', { className: "flex items-center space-x-2 border-r border-gray-600 pr-4" }, [
-                                        React.createElement('button', { onClick: addCustomText, className: "flex items-center px-3 py-1 bg-green-700 hover:bg-green-600 text-white rounded text-sm" }, [ React.createElement(TypeIcon, { size: 14, className: "mr-1" }), "Text" ]),
+                                        React.createElement('button', { onClick: addCustomText, className: "flex items-center px-3 py-1 bg-green-700 hover:bg-green-600 text-white rounded text-sm" }, [ React.createElement(Type, { size: 14, className: "mr-1" }), "Text" ]),
                                         React.createElement('label', { className: "flex items-center px-3 py-1 bg-purple-700 hover:bg-purple-600 text-white rounded text-sm cursor-pointer" }, [ 
                                             React.createElement(ImageIcon, { size: 14, className: "mr-1" }), "Img",
                                             React.createElement('input', { type: 'file', accept: 'image/*', className: 'hidden', onChange: addCustomImage })
@@ -1537,7 +1580,7 @@
                                                     React.createElement('div', { key: t.id, className: `relative group rounded-lg overflow-hidden border-2 aspect-video bg-black cursor-pointer transition-all ${backgroundImage === t.url ? 'border-green-500 ring-2 ring-green-500/50' : 'border-gray-800 hover:border-blue-500'}` }, [
                                                         React.createElement('img', { src: t.url, className: "w-full h-full object-cover", onClick: () => setBackgroundImage(t.url) }),
                                                         React.createElement('div', { className: "absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent p-2 pt-6 opacity-0 group-hover:opacity-100 transition-opacity flex justify-between items-end" }, [
-                                                            React.createElement('span', { className: "text-[10px] text-gray-300 truncate max-w-[70%]" }, t.name),
+                                                            React.createElement('span', { className: "text-sm text-gray-300 truncate max-w-[70%]" }, t.name),
                                                             React.createElement('button', { onClick: (e) => { e.stopPropagation(); deleteTheme(t.id); }, className: "text-red-400 hover:text-red-200 bg-black/50 p-1 rounded hover:bg-red-900/50" }, React.createElement(Trash2, { size: 12 }))
                                                         ])
                                                     ])
