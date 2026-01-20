@@ -631,7 +631,7 @@
                     desc: `Song: ${item.title} (Slide ${i+1})`,
                     // Persistence for regrouping and export
                     groupId: item.groupId || item.id, 
-                    fullText: item.fullText,
+                    fullText: item.fullText, // Kept for reference but not strictly used for regrouping anymore
                     originalId: item.originalId,
                     isFirstSlide: i === 0 
                 }));
@@ -641,16 +641,22 @@
             };
 
             const regroupSong = (groupId) => {
+                // Find all active slides for this group
                 const slides = program.filter(p => p.groupId === groupId);
                 if (slides.length === 0) return;
                 
                 // Recover data from the first slide found
                 const ref = slides[0];
+                
+                // Reconstruct the full text based ONLY on the currently present slides
+                // This ensures deleted slides are permanently removed from the group instance
+                const reconstructedText = slides.map(s => s.text).join('\n\n');
+
                 const groupItem = {
                     id: groupId,
                     type: 'program_song_group',
                     title: ref.title,
-                    fullText: ref.fullText,
+                    fullText: reconstructedText, // Use text from remaining slides
                     desc: `Song Group: ${ref.title}`,
                     groupId: groupId,
                     originalId: ref.originalId
@@ -659,7 +665,7 @@
                 // Find index of first slide in current program to insert group there
                 const firstIndex = program.findIndex(p => p.groupId === groupId);
                 
-                // Filter out all slides of this group
+                // Remove all individual slides of this group
                 const newProg = program.filter(p => p.groupId !== groupId);
                 
                 // Insert group item at the position of the first slide
