@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Church Presenter Pro + Cloud</title>
+    <title>Church Presenter Pro + Cloud + AI</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -34,6 +34,18 @@
         }
     </script>
     
+    <!-- Polyfill for process.env.API_KEY for the browser environment -->
+    <script>
+        window.process = {
+            env: {
+                // In a real deployment, this would be injected by the build system.
+                // For this single-file demo, we assume the user might replace this or set it up.
+                // The application will attempt to use this key.
+                API_KEY: '' 
+            }
+        };
+    </script>
+    
     <style>
         body { margin: 0; padding: 0; overflow: hidden; background-color: #111827; }
         /* Scrollbar styling */
@@ -60,6 +72,13 @@
         /* Drag and Drop Visuals */
         .dragging { opacity: 0.5; }
         .drag-over { border-color: #3b82f6 !important; background-color: #1f2937 !important; }
+        
+        /* AI Gradient Text */
+        .text-gradient-ai {
+            background: linear-gradient(to right, #60a5fa, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
     </style>
 </head>
 <body>
@@ -78,9 +97,12 @@
             FilePlus, Copy, HardDrive, Move, AlignLeft, AlignCenter, AlignRight,
             Palette, MousePointer2, Scaling, Layers, GripVertical,
             Bold, Italic, MinusCircle, CheckCircle, WifiOff, Crop,
-            ArrowUpFromLine, ArrowDownFromLine, Split, Merge
+            ArrowUpFromLine, ArrowDownFromLine, Split, Merge, Sparkles
         } from 'https://esm.sh/lucide-react@0.292.0';
         
+        // Gemini API - Alias Type to GenAIType to avoid conflict with lucide-react Type icon
+        import { GoogleGenAI, Type as GenAIType } from 'https://esm.sh/@google/genai';
+
         // Firebase Imports
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js';
         import { 
@@ -354,6 +376,12 @@
             const [loadingBible, setLoadingBible] = useState(false);
             const [cloudBibles, setCloudBibles] = useState([]); 
             const [offlineBibles, setOfflineBibles] = useState({}); 
+
+            // AI Bible Search State
+            const [aiSearchTerm, setAiSearchTerm] = useState('');
+            const [aiResults, setAiResults] = useState([]);
+            const [isAiLoading, setIsAiLoading] = useState(false);
+            const chatSession = useRef(null);
 
             // Song
             const [songs, setSongs] = useState([]);
@@ -912,6 +940,62 @@
                 setLoadingBible(false);
             };
 
+            // --- AI Logic ---
+            const handleAiSearch = async (isNext = false) => {
+                if (!aiSearchTerm.trim()) {
+                    alert("Please enter keywords.");
+                    return;
+                }
+                setIsAiLoading(true);
+                
+                try {
+                    // Initialize chat if needed
+                    if (!chatSession.current) {
+                        if (!process.env.API_KEY) {
+                            alert("Gemini API Key is missing. Please configure process.env.API_KEY.");
+                            setIsAiLoading(false);
+                            return;
+                        }
+                        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+                        chatSession.current = ai.chats.create({
+                            model: 'gemini-3-flash-preview',
+                            config: {
+                                responseMimeType: 'application/json',
+                                responseSchema: {
+                                    type: GenAIType.ARRAY,
+                                    items: {
+                                        type: GenAIType.OBJECT,
+                                        properties: {
+                                            reference: { type: GenAIType.STRING },
+                                            text: { type: GenAIType.STRING },
+                                            version: { type: GenAIType.STRING }
+                                        }
+                                    }
+                                }
+                            }
+                        });
+                    }
+                    
+                    const prompt = isNext 
+                        ? `Find 5 distinct bible verses related to the previous topic "${aiSearchTerm}" that haven't been shown yet. Return valid JSON array.`
+                        : `Find 5 bible verses related to: "${aiSearchTerm}". Return a valid JSON array where each object has 'reference', 'text', and 'version'.`;
+                    
+                    const response = await chatSession.current.sendMessage({ message: prompt });
+                    const jsonText = response.text;
+                    const verses = JSON.parse(jsonText);
+                    
+                    if (Array.isArray(verses)) {
+                        setAiResults(verses);
+                    }
+                } catch (error) {
+                    console.error("AI Error", error);
+                    alert("AI Search failed. Check console or API Key.");
+                } finally {
+                    setIsAiLoading(false);
+                }
+            };
+
+
             // --- Song Functions ---
             const refreshLocalSongs = async () => {
                 try {
@@ -1274,7 +1358,7 @@
                 React.createElement('header', { className: "flex items-center justify-between px-6 py-3 bg-gray-950 border-b border-gray-800 shrink-0" }, [
                     React.createElement('div', { className: "flex items-center space-x-3" }, [
                         React.createElement(Monitor, { className: "text-blue-500" }),
-                        React.createElement('h1', { className: "text-xl font-bold tracking-tight" }, [ "ChurchPresenter", React.createElement('span', { className: "text-xs font-normal text-gray-500 ml-2" }, "Cloud Edition") ])
+                        React.createElement('h1', { className: "text-xl font-bold tracking-tight" }, [ "ChurchPresenter", React.createElement('span', { className: "text-xs font-normal text-gray-500 ml-2" }, "Pro + AI") ])
                     ]),
                     React.createElement('div', { className: "flex items-center space-x-4" }, [
                         user ? React.createElement('div', { className: "flex items-center space-x-2 text-sm text-gray-400" }, [
@@ -1396,6 +1480,7 @@
 
                             // BIBLE TAB
                             React.createElement('div', { className: activeTab === 'bible' ? "space-y-6 max-w-2xl mx-auto w-full animate-in fade-in duration-200" : "hidden-tab" }, [
+                                // Manual Finder
                                 React.createElement('div', { className: "grid grid-cols-2 gap-4" }, [
                                     React.createElement('div', { className: "col-span-2 sm:col-span-1" }, [
                                         React.createElement('label', { className: "block text-sm font-medium text-gray-400 mb-1" }, "Select Book"),
@@ -1421,17 +1506,85 @@
                                         ])
                                     ])
                                 ]),
-                                React.createElement('div', { className: "flex space-x-2" }, [
+                                React.createElement('div', { className: "flex space-x-2 border-b border-gray-700 pb-6" }, [
                                     React.createElement('button', { onClick: () => handleVerseNav('prev'), className: "p-3 bg-gray-700 hover:bg-gray-600 rounded-lg text-white" }, React.createElement(ChevronLeft, { size: 24 })),
                                     React.createElement('button', { onClick: () => fetchVerse(), disabled: loadingBible, className: "flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium flex justify-center items-center transition-colors" }, loadingBible ? React.createElement(Loader2, { className: "animate-spin mr-2" }) : [React.createElement(Search, { className: "mr-2", size: 18 }), "Find Verse"]),
                                     React.createElement('button', { onClick: () => handleVerseNav('next'), className: "p-3 bg-gray-700 hover:bg-gray-600 rounded-lg text-white" }, React.createElement(ChevronRight, { size: 24 })),
                                 ]),
+                                
                                 biblePreview && React.createElement('div', { className: "bg-gray-800 rounded-xl p-6 border border-gray-700 shadow-xl" }, [
                                     React.createElement('div', { className: "text-sm text-gray-400 mb-2 uppercase tracking-wide flex justify-between" }, [ React.createElement('span', {}, "Preview"), React.createElement('span', {}, biblePreview.version) ]),
                                     React.createElement('p', { className: "text-xl font-serif mb-4 leading-relaxed whitespace-pre-line" }, biblePreview.text),
                                     React.createElement('div', { className: "flex justify-end space-x-3" }, [
                                         React.createElement('button', { onClick: () => addToProgram(biblePreview), className: "flex items-center px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600" }, [React.createElement(Plus, { size: 16, className: "mr-2" }), "Add to Program"]),
                                         React.createElement('button', { onClick: () => projectContent(biblePreview), className: "flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-500" }, [React.createElement(Monitor, { size: 16, className: "mr-2" }), "Project"])
+                                    ])
+                                ]),
+
+                                // AI Verse Finder
+                                React.createElement('div', { className: "bg-gray-800/50 rounded-xl p-5 border border-purple-500/30 shadow-lg mt-6" }, [
+                                    React.createElement('div', { className: "flex items-center mb-4" }, [
+                                        React.createElement(Wand2, { size: 20, className: "text-purple-400 mr-2" }),
+                                        React.createElement('h3', { className: "text-lg font-bold text-gradient-ai" }, "AI Verse Assistant")
+                                    ]),
+                                    React.createElement('div', { className: "flex space-x-2 mb-4" }, [
+                                        React.createElement('input', { 
+                                            type: "text", 
+                                            placeholder: "E.g., hope, strength in hard times, John 3:16 meaning...", 
+                                            value: aiSearchTerm, 
+                                            onChange: (e) => setAiSearchTerm(e.target.value),
+                                            onKeyDown: (e) => e.key === 'Enter' && handleAiSearch(false),
+                                            className: "flex-1 bg-gray-900 border border-gray-700 rounded-lg text-white px-4 py-3 outline-none focus:border-purple-500 transition-colors"
+                                        }),
+                                        React.createElement('button', { 
+                                            onClick: () => handleAiSearch(false), 
+                                            disabled: isAiLoading,
+                                            className: "px-6 py-2 bg-purple-700 hover:bg-purple-600 text-white rounded-lg font-medium flex items-center transition-colors shadow-lg disabled:opacity-50"
+                                        }, isAiLoading ? React.createElement(Loader2, { className: "animate-spin" }) : [React.createElement(Sparkles, { size: 18, className: "mr-2" }), "Ask AI"])
+                                    ]),
+                                    
+                                    // AI Results List
+                                    aiResults.length > 0 && React.createElement('div', { className: "space-y-3" }, [
+                                        aiResults.map((verse, idx) => 
+                                            React.createElement('div', { 
+                                                key: idx, 
+                                                className: "bg-gray-900 p-4 rounded-lg border border-gray-700 hover:border-purple-500 cursor-pointer transition-colors group relative",
+                                                onClick: () => projectContent({
+                                                    type: 'bible',
+                                                    text: verse.text,
+                                                    reference: verse.reference,
+                                                    version: verse.version || "AI Generated",
+                                                    desc: `Bible (AI): ${verse.reference}`
+                                                })
+                                            }, [
+                                                React.createElement('div', { className: "flex justify-between items-start mb-2" }, [
+                                                    React.createElement('span', { className: "font-bold text-purple-300" }, verse.reference),
+                                                    React.createElement('span', { className: "text-xs text-gray-500" }, verse.version)
+                                                ]),
+                                                React.createElement('p', { className: "text-sm text-gray-300 font-serif leading-relaxed" }, verse.text),
+                                                React.createElement('div', { className: "absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-1" }, [
+                                                    React.createElement('button', {
+                                                        onClick: (e) => {
+                                                            e.stopPropagation();
+                                                            addToProgram({
+                                                                type: 'program_bible',
+                                                                text: verse.text,
+                                                                reference: verse.reference,
+                                                                version: verse.version || "AI",
+                                                                desc: `Bible: ${verse.reference}`
+                                                            });
+                                                        },
+                                                        className: "p-1.5 bg-gray-700 hover:bg-gray-600 rounded text-white shadow-sm"
+                                                    }, React.createElement(Plus, { size: 14 })),
+                                                    React.createElement('button', { className: "p-1.5 bg-green-700 hover:bg-green-600 rounded text-white shadow-sm" }, React.createElement(Monitor, { size: 14 }))
+                                                ])
+                                            ])
+                                        ),
+                                        React.createElement('button', { 
+                                            onClick: () => handleAiSearch(true),
+                                            disabled: isAiLoading,
+                                            className: "w-full py-3 mt-2 border border-purple-500/30 text-purple-300 hover:bg-purple-900/20 rounded-lg text-sm flex items-center justify-center transition-colors"
+                                        }, isAiLoading ? React.createElement(Loader2, { size: 16, className: "animate-spin" }) : "Find 5 More Verses")
                                     ])
                                 ])
                             ]),
