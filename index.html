@@ -56,6 +56,10 @@
             cursor: nwse-resize; z-index: 100; display: none;
         }
         .editor-element.selected .resize-handle { display: block; }
+        
+        /* Drag and Drop Visuals */
+        .dragging { opacity: 0.5; }
+        .drag-over { border-color: #3b82f6 !important; background-color: #1f2937 !important; }
     </style>
 </head>
 <body>
@@ -72,7 +76,7 @@
             FolderInput, FileText, Database, Download, List, Image as ImageIcon,
             ArrowUp, ArrowDown, LogIn, LogOut, Upload, Cloud, Archive, Share2,
             FilePlus, Copy, HardDrive, Move, AlignLeft, AlignCenter, AlignRight,
-            Palette, MousePointer2, Scaling, Layers,
+            Palette, MousePointer2, Scaling, Layers, GripVertical,
             Bold, Italic, MinusCircle, CheckCircle, WifiOff, Crop,
             ArrowUpFromLine, ArrowDownFromLine, Split, Merge
         } from 'https://esm.sh/lucide-react@0.292.0';
@@ -336,6 +340,10 @@
             const [isSavingProgram, setIsSavingProgram] = useState(false);
             const [editingProgramItemIndex, setEditingProgramItemIndex] = useState(null);
             const [tempProgramEditText, setTempProgramEditText] = useState('');
+
+            // Program Drag and Drop
+            const [draggedItemIndex, setDraggedItemIndex] = useState(null);
+            const [dragOverIndex, setDragOverIndex] = useState(null);
 
             // Bible
             const [bibleBook, setBibleBook] = useState('John');
@@ -686,6 +694,50 @@
                     [newProg[index], newProg[index+1]] = [newProg[index+1], newProg[index]];
                     setProgram(newProg);
                 }
+            };
+            
+            // Drag and Drop Handlers
+            const handleDragStart = (e, index) => {
+                setDraggedItemIndex(index);
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", index); // Required for Firefox
+                // Optional: set ghost image styling via a class on body or similar if needed
+            };
+
+            const handleDragOver = (e, index) => {
+                e.preventDefault(); // Necessary to allow dropping
+                e.dataTransfer.dropEffect = "move";
+            };
+            
+            const handleDragEnter = (e, index) => {
+                if (draggedItemIndex !== null && dragOverIndex !== index) {
+                    setDragOverIndex(index);
+                }
+            };
+            
+            const handleDragLeave = (e, index) => {
+                // Optional: clear dragOverIndex if leaving the list entirely
+            };
+
+            const handleDrop = (e, index) => {
+                e.preventDefault();
+                if (draggedItemIndex === null || draggedItemIndex === index) {
+                     setDraggedItemIndex(null);
+                     setDragOverIndex(null);
+                     return;
+                }
+                
+                const newProg = [...program];
+                const itemToMove = newProg[draggedItemIndex];
+                
+                // Remove from old pos
+                newProg.splice(draggedItemIndex, 1);
+                // Insert at new pos
+                newProg.splice(index, 0, itemToMove);
+                
+                setProgram(newProg);
+                setDraggedItemIndex(null);
+                setDragOverIndex(null);
             };
 
             const editProgramItem = (index) => {
@@ -1292,8 +1344,26 @@
                                         ])
                                     ])
                                 ]),
-                                React.createElement('ul', { className: "space-y-3" }, program.map((item, idx) => 
-                                    React.createElement('li', { key: item.id, className: "flex items-center bg-gray-800 p-4 rounded-xl border border-gray-700 hover:border-gray-500 transition-colors group" }, [
+                                React.createElement('ul', { className: "space-y-3" }, program.map((item, idx) => {
+                                    const isLive = liveContent && liveContent.id === item.id;
+                                    return React.createElement('li', { 
+                                        key: item.id,
+                                        draggable: true,
+                                        onDragStart: (e) => handleDragStart(e, idx),
+                                        onDragOver: (e) => handleDragOver(e, idx),
+                                        onDrop: (e) => handleDrop(e, idx),
+                                        onDragEnter: (e) => handleDragEnter(e, idx),
+                                        onDragLeave: (e) => handleDragLeave(e, idx),
+                                        className: `flex items-center p-4 rounded-xl border transition-all duration-200 group ${
+                                            draggedItemIndex === idx ? 'bg-gray-800 opacity-40 border-dashed border-gray-500' : 
+                                            dragOverIndex === idx ? 'bg-gray-800 border-blue-500' : 
+                                            isLive ? 'bg-green-900/20 border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.3)] scale-[1.01]' :
+                                            'bg-gray-800 border-gray-700 hover:border-gray-500'
+                                        }`
+                                    }, [
+                                        // Drag Handle
+                                        React.createElement('div', { className: `mr-3 cursor-move ${isLive ? 'text-green-500' : 'text-gray-500'} hover:text-gray-300` }, React.createElement(GripVertical, { size: 20 })),
+                                        
                                         React.createElement('div', { className: "flex flex-col space-y-1 mr-4" }, [
                                             React.createElement('button', { onClick: () => moveProgramItem(idx, 'up'), disabled: idx === 0, className: "p-1 hover:bg-gray-700 rounded disabled:opacity-30" }, React.createElement(ArrowUp, { size: 16 })),
                                             React.createElement('button', { onClick: () => moveProgramItem(idx, 'down'), disabled: idx === program.length - 1, className: "p-1 hover:bg-gray-700 rounded disabled:opacity-30" }, React.createElement(ArrowDown, { size: 16 }))
@@ -1301,7 +1371,8 @@
                                         React.createElement('div', { className: "flex-1 cursor-pointer", onClick: () => item.type !== 'program_song_group' && projectContent(item) }, [
                                             React.createElement('div', { className: "flex items-center" }, [
                                                 React.createElement('span', { className: "px-2 py-0.5 rounded text-[10px] uppercase font-bold mr-3 " + (item.type.includes('bible') ? 'bg-yellow-900 text-yellow-200' : item.type.includes('song') ? 'bg-blue-900 text-blue-200' : 'bg-purple-900 text-purple-200') }, item.type.replace('program_', '').replace('_group','')),
-                                                React.createElement('span', { className: "font-medium" }, item.desc || (item.title ? item.title : "Custom Slide"))
+                                                React.createElement('span', { className: "font-medium" }, item.desc || (item.title ? item.title : "Custom Slide")),
+                                                isLive && React.createElement('span', { className: "ml-2 px-1.5 py-0.5 bg-red-600 text-white text-[10px] font-bold rounded animate-pulse" }, "LIVE")
                                             ]),
                                             React.createElement('div', { className: "text-sm text-gray-400 mt-1 truncate max-w-xl" }, item.text ? item.text.substring(0, 100) + "..." : (item.elements ? item.elements.map(e => e.type === 'image' ? '[Image]' : e.text).join(' ').substring(0, 100) + "..." : (item.type === 'program_song_group' ? 'Song Group (Click breakdown to expand)' : '')))
                                         ]),
@@ -1313,13 +1384,14 @@
 
                                             item.type === 'program_song_group' ? 
                                             React.createElement('button', { onClick: () => breakdownSong(idx), className: "px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium flex items-center" }, [ React.createElement(Split, { size: 16, className: "mr-2" }), "Breakdown" ])
-                                            : React.createElement('button', { onClick: () => projectContent(item), className: "px-4 py-2 bg-green-700 hover:bg-green-600 text-white rounded-lg text-sm font-medium flex items-center" }, [ React.createElement(Play, { size: 16, className: "mr-2" }), "Live" ]),
+                                            : React.createElement('button', { onClick: () => projectContent(item), className: `px-4 py-2 rounded-lg text-sm font-medium flex items-center transition-colors ${isLive ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-green-700 hover:bg-green-600 text-white'}` }, [ React.createElement(Play, { size: 16, className: "mr-2" }), "Live" ]),
                                             
                                             item.type !== 'program_song_group' && React.createElement('button', { onClick: () => editProgramItem(idx), className: "p-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-medium", title: "Edit Slide" }, React.createElement(Edit3, { size: 16 })),
                                             React.createElement('button', { onClick: () => setProgram(p => p.filter((_, i) => i !== idx)), className: "p-2 hover:bg-red-900/30 text-gray-500 hover:text-red-400 rounded-lg" }, React.createElement(X, { size: 20 }))
                                         ])
                                     ])
-                                ))
+                                })
+                                )
                             ]),
 
                             // BIBLE TAB
