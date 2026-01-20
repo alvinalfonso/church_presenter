@@ -41,7 +41,7 @@
                 // In a real deployment, this would be injected by the build system.
                 // For this single-file demo, we assume the user might replace this or set it up.
                 // The application will attempt to use this key.
-                API_KEY: '' 
+                API_KEY: 'AIzaSyCOxhs_VSA7dckt-iyNHXXiTo8O_HhUOkk' 
             }
         };
     </script>
@@ -89,7 +89,7 @@
         import React, { useState, useEffect, useRef, useMemo } from 'https://esm.sh/react@18.2.0';
         import ReactDOM from 'https://esm.sh/react-dom@18.2.0/client';
         import { 
-            BookOpen, Music, Monitor, Type, Settings, Search, Plus, Save, 
+            BookOpen, Music, Monitor, Type as TypeIcon, Settings, Search, Plus, Save, 
             Trash2, Play, Maximize2, Minimize2, Edit3, X, ChevronRight, 
             ChevronLeft, Loader2, Command, ExternalLink, Power, Globe, Wand2, 
             FolderInput, FileText, Database, Download, List, Image as ImageIcon,
@@ -1378,7 +1378,7 @@
                             React.createElement('div', { className: "my-2 border-b border-gray-800" }),
                             React.createElement(SidebarButton, { icon: BookOpen, label: "Bible", tabId: "bible" }),
                             React.createElement(SidebarButton, { icon: Music, label: "Songbook", tabId: "songs" }),
-                            React.createElement(SidebarButton, { icon: Type, label: "Custom Slides", tabId: "custom" }),
+                            React.createElement(SidebarButton, { icon: TypeIcon, label: "Custom Slides", tabId: "custom" }),
                             React.createElement(SidebarButton, { icon: Settings, label: "Settings", tabId: "settings" }),
                         ]),
                         React.createElement('div', { className: "mt-auto" }, [
@@ -1639,7 +1639,7 @@
                                 // Top Toolbar
                                 React.createElement('div', { className: "bg-gray-800 p-2 rounded-lg border border-gray-700 flex items-center space-x-4 overflow-x-auto" }, [
                                     React.createElement('div', { className: "flex items-center space-x-2 border-r border-gray-600 pr-4" }, [
-                                        React.createElement('button', { onClick: addCustomText, className: "flex items-center px-3 py-1 bg-green-700 hover:bg-green-600 text-white rounded text-sm" }, [ React.createElement(Type, { size: 14, className: "mr-1" }), "Text" ]),
+                                        React.createElement('button', { onClick: addCustomText, className: "flex items-center px-3 py-1 bg-green-700 hover:bg-green-600 text-white rounded text-sm" }, [ React.createElement(TypeIcon, { size: 14, className: "mr-1" }), "Text" ]),
                                         React.createElement('label', { className: "flex items-center px-3 py-1 bg-purple-700 hover:bg-purple-600 text-white rounded text-sm cursor-pointer" }, [ 
                                             React.createElement(ImageIcon, { size: 14, className: "mr-1" }), "Img",
                                             React.createElement('input', { type: 'file', accept: 'image/*', className: 'hidden', onChange: addCustomImage })
