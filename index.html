@@ -375,6 +375,9 @@
             const [cloudBibles, setCloudBibles] = useState([]); 
             const [offlineBibles, setOfflineBibles] = useState({}); 
 
+            // Notepad State (Persisted in LocalStorage)
+            const [bibleNotes, setBibleNotes] = useState(() => localStorage.getItem('cp_bible_notes') || '');
+
             // AI Bible Search State
             const [aiSearchTerm, setAiSearchTerm] = useState('');
             const [aiResults, setAiResults] = useState([]);
@@ -946,6 +949,12 @@
                 setLoadingBible(false);
             };
 
+            // --- Notes Functions ---
+            const saveBibleNotes = () => {
+                localStorage.setItem('cp_bible_notes', bibleNotes);
+                alert("Notes saved successfully!");
+            };
+
             // --- AI Logic ---
             const handleAiSearch = async (isNext = false) => {
                 if (!apiKey) {
@@ -1428,6 +1437,19 @@
                                     React.createElement('div', { className: "flex space-x-2 items-center" }, [
                                         React.createElement('button', { onClick: clearProgram, className: "p-2 bg-gray-800 border border-gray-700 hover:bg-gray-700 rounded text-gray-300 mr-2", title: "New Program (Clear)" }, React.createElement(FilePlus, { size: 18 })),
                                         React.createElement('button', { onClick: exportCurrentProgram, className: "p-2 bg-gray-800 border border-gray-700 hover:bg-gray-700 rounded text-gray-300 mr-2", title: "Export to File" }, React.createElement(Download, { size: 18 })),
+                                        
+                                        // Added JSON to PPT Link
+                                        React.createElement('a', { 
+                                            href: "https://servicetoslide-296181927217.us-west1.run.app/",
+                                            target: "_blank",
+                                            rel: "noopener noreferrer",
+                                            className: "flex items-center px-3 py-2 bg-purple-900/50 hover:bg-purple-800 text-purple-200 border border-purple-700/50 rounded-lg text-sm mr-2 transition-colors",
+                                            title: "Convert JSON Program to PowerPoint"
+                                        }, [
+                                            React.createElement(FileText, { size: 16, className: "mr-2" }),
+                                            "JSON to PPT"
+                                        ]),
+
                                         React.createElement('label', { className: "p-2 bg-gray-800 border border-gray-700 hover:bg-gray-700 rounded text-gray-300 cursor-pointer mr-2", title: "Import from File" }, [ 
                                             React.createElement(Upload, { size: 18 }),
                                             React.createElement('input', { type: 'file', accept: '.json', className: 'hidden', onChange: importProgram })
@@ -1625,6 +1647,26 @@
                                             className: "w-full py-3 mt-2 border border-purple-500/30 text-purple-300 hover:bg-purple-900/20 rounded-lg text-sm flex items-center justify-center transition-colors"
                                         }, isAiLoading ? React.createElement(Loader2, { size: 16, className: "animate-spin" }) : "Find 5 More Verses")
                                     ])
+                                ]),
+
+                                // Notepad Section - Added
+                                React.createElement('div', { className: "bg-gray-800/50 rounded-xl p-5 border border-gray-700 shadow-lg mt-6" }, [
+                                    React.createElement('div', { className: "flex items-center justify-between mb-4" }, [
+                                        React.createElement('div', { className: "flex items-center" }, [
+                                            React.createElement(Edit3, { size: 20, className: "text-yellow-500 mr-2" }),
+                                            React.createElement('h3', { className: "text-lg font-bold text-gray-200" }, "Sermon Notepad")
+                                        ]),
+                                        React.createElement('button', {
+                                            onClick: saveBibleNotes,
+                                            className: "px-3 py-1 bg-yellow-700 hover:bg-yellow-600 text-white text-sm rounded flex items-center"
+                                        }, [React.createElement(Save, { size: 14, className: "mr-1" }), "Save Notes"])
+                                    ]),
+                                    React.createElement('textarea', {
+                                        value: bibleNotes,
+                                        onChange: (e) => setBibleNotes(e.target.value),
+                                        placeholder: "Take notes here...",
+                                        className: "w-full h-40 bg-gray-900 border border-gray-700 rounded-lg text-white p-4 outline-none resize-y font-sans text-sm focus:border-yellow-500/50 transition-colors"
+                                    })
                                 ])
                             ]),
 
