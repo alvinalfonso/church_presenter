@@ -34,14 +34,12 @@
         }
     </script>
     
-    <!-- Polyfill for process.env.API_KEY for the browser environment -->
+    <!-- Polyfill for process.env (API Key removed for security/user input) -->
     <script>
         window.process = {
             env: {
-                // In a real deployment, this would be injected by the build system.
-                // For this single-file demo, we assume the user might replace this or set it up.
-                // The application will attempt to use this key.
-                API_KEY: 'AIzaSyCOxhs_VSA7dckt-iyNHXXiTo8O_HhUOkk' 
+                // API Key is now handled via user input in the UI and LocalStorage
+                API_KEY: '' 
             }
         };
     </script>
@@ -97,7 +95,7 @@
             FilePlus, Copy, HardDrive, Move, AlignLeft, AlignCenter, AlignRight,
             Palette, MousePointer2, Scaling, Layers, GripVertical,
             Bold, Italic, MinusCircle, CheckCircle, WifiOff, Crop,
-            ArrowUpFromLine, ArrowDownFromLine, Split, Merge, Sparkles
+            ArrowUpFromLine, ArrowDownFromLine, Split, Merge, Sparkles, Key, CopyPlus
         } from 'https://esm.sh/lucide-react@0.292.0';
         
         // Gemini API - Alias Type to GenAIType to avoid conflict with lucide-react Type icon
@@ -382,6 +380,8 @@
             const [aiResults, setAiResults] = useState([]);
             const [isAiLoading, setIsAiLoading] = useState(false);
             const chatSession = useRef(null);
+            // API Key State
+            const [apiKey, setApiKey] = useState(() => localStorage.getItem('cp_ai_key') || '');
 
             // Song
             const [songs, setSongs] = useState([]);
@@ -402,7 +402,8 @@
                 type: 'text',
                 text: "Click to Edit\nDouble click toolbar to format",
                 x: 10, y: 30, w: 80, h: 40, zIndex: 1,
-                styles: { color: '#ffffff', outline: '#000000', font: 'sans', align: 'center', fontSize: 60, bold: false, italic: false }
+                // Changed default outline to none
+                styles: { color: '#ffffff', outline: 'none', font: 'sans', align: 'center', fontSize: 60, bold: false, italic: false }
             }]);
             const [selectedElementId, setSelectedElementId] = useState(customElements[0].id);
             const [dragMode, setDragMode] = useState(null);
@@ -446,6 +447,11 @@
                 refreshOfflineBibles();
                 return () => unsubscribe();
             }, []);
+
+            // Save API Key effect
+            useEffect(() => {
+                localStorage.setItem('cp_ai_key', apiKey);
+            }, [apiKey]);
 
             // --- IndexedDB Sync Helpers ---
             const refreshLocalThemes = async () => {
@@ -942,6 +948,10 @@
 
             // --- AI Logic ---
             const handleAiSearch = async (isNext = false) => {
+                if (!apiKey) {
+                    alert("Please paste your Google AI Studio API Key in the field below.");
+                    return;
+                }
                 if (!aiSearchTerm.trim()) {
                     alert("Please enter keywords.");
                     return;
@@ -949,32 +959,29 @@
                 setIsAiLoading(true);
                 
                 try {
-                    // Initialize chat if needed
-                    if (!chatSession.current) {
-                        if (!process.env.API_KEY) {
-                            alert("Gemini API Key is missing. Please configure process.env.API_KEY.");
-                            setIsAiLoading(false);
-                            return;
-                        }
-                        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-                        chatSession.current = ai.chats.create({
-                            model: 'gemini-3-flash-preview',
-                            config: {
-                                responseMimeType: 'application/json',
-                                responseSchema: {
-                                    type: GenAIType.ARRAY,
-                                    items: {
-                                        type: GenAIType.OBJECT,
-                                        properties: {
-                                            reference: { type: GenAIType.STRING },
-                                            text: { type: GenAIType.STRING },
-                                            version: { type: GenAIType.STRING }
-                                        }
+                    // Initialize chat if needed or if key changed
+                    // For simplicity, we create a new instance if session is null or just reuse 
+                    // To handle key changes, we should probably recreate it
+                    
+                    const ai = new GoogleGenAI({ apiKey: apiKey });
+                    const newChat = ai.chats.create({
+                        model: 'gemini-3-flash-preview',
+                        config: {
+                            responseMimeType: 'application/json',
+                            responseSchema: {
+                                type: GenAIType.ARRAY,
+                                items: {
+                                    type: GenAIType.OBJECT,
+                                    properties: {
+                                        reference: { type: GenAIType.STRING },
+                                        text: { type: GenAIType.STRING },
+                                        version: { type: GenAIType.STRING }
                                     }
                                 }
                             }
-                        });
-                    }
+                        }
+                    });
+                    chatSession.current = newChat;
                     
                     const prompt = isNext 
                         ? `Find 5 distinct bible verses related to the previous topic "${aiSearchTerm}" that haven't been shown yet. Return valid JSON array.`
@@ -1068,7 +1075,8 @@
                     type: 'text',
                     text: "New Text Box",
                     x: 10, y: 10, w: 30, h: 20, zIndex: customElements.length + 1,
-                    styles: { color: '#ffffff', outline: '#000000', font: 'sans', align: 'left', fontSize: 60, bold: false, italic: false }
+                    // Default outline set to none
+                    styles: { color: '#ffffff', outline: 'none', font: 'sans', align: 'left', fontSize: 60, bold: false, italic: false }
                 };
                 setCustomElements(prev => [...prev, newEl]);
                 setSelectedElementId(newEl.id);
@@ -1090,6 +1098,21 @@
                 };
                 reader.readAsDataURL(file);
                 e.target.value = '';
+            };
+
+            const duplicateSelectedElement = () => {
+                const el = customElements.find(e => e.id === selectedElementId);
+                if (!el) return;
+                const newEl = JSON.parse(JSON.stringify(el));
+                newEl.id = Date.now();
+                newEl.x += 2; // Offset slightly so user sees it
+                newEl.y += 2;
+                // Add to top layer
+                const maxZ = Math.max(...customElements.map(e => e.zIndex || 1));
+                newEl.zIndex = maxZ + 1;
+                
+                setCustomElements(prev => [...prev, newEl]);
+                setSelectedElementId(newEl.id);
             };
 
             const deleteSelectedElement = () => {
@@ -1527,6 +1550,22 @@
                                         React.createElement(Wand2, { size: 20, className: "text-purple-400 mr-2" }),
                                         React.createElement('h3', { className: "text-lg font-bold text-gradient-ai" }, "AI Verse Assistant")
                                     ]),
+                                    // New API Key Input
+                                    React.createElement('div', { className: "mb-4" }, [
+                                        React.createElement('label', { className: "text-xs text-gray-400 mb-1 block" }, "Google AI Studio API Key"),
+                                        React.createElement('div', { className: "flex space-x-2" }, [
+                                            React.createElement('div', { className: "relative flex-1" }, [
+                                                React.createElement(Key, { size: 14, className: "absolute left-2.5 top-2.5 text-gray-500" }),
+                                                React.createElement('input', { 
+                                                    type: "password", 
+                                                    value: apiKey, 
+                                                    onChange: (e) => setApiKey(e.target.value), 
+                                                    className: "w-full bg-gray-900 border border-gray-700 rounded p-2 pl-8 text-xs text-white placeholder-gray-600 focus:border-purple-500 outline-none", 
+                                                    placeholder: "Paste your API Key here..." 
+                                                })
+                                            ])
+                                        ])
+                                    ]),
                                     React.createElement('div', { className: "flex space-x-2 mb-4" }, [
                                         React.createElement('input', { 
                                             type: "text", 
@@ -1644,7 +1683,9 @@
                                             React.createElement(ImageIcon, { size: 14, className: "mr-1" }), "Img",
                                             React.createElement('input', { type: 'file', accept: 'image/*', className: 'hidden', onChange: addCustomImage })
                                         ]),
-                                        React.createElement('button', { onClick: deleteSelectedElement, className: "p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-900/20 rounded" }, React.createElement(Trash2, { size: 16 }))
+                                        // Duplicate Button
+                                        React.createElement('button', { onClick: duplicateSelectedElement, className: "p-1.5 text-gray-400 hover:text-white hover:bg-gray-700 rounded", title: "Duplicate" }, React.createElement(CopyPlus, { size: 16 })),
+                                        React.createElement('button', { onClick: deleteSelectedElement, className: "p-1.5 text-gray-400 hover:text-red-400 hover:bg-red-900/20 rounded", title: "Delete" }, React.createElement(Trash2, { size: 16 }))
                                     ]),
                                     
                                     // Layering
