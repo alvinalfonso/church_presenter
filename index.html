@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Church Presenter Pro + Cloud + AI</title>
+    <title>Church Presenter Pro + Offline Search</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -28,20 +28,13 @@
                     },
                     cursor: {
                         'move': 'move',
+                    },
+                    animation: {
+                        'pulse-fast': 'pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite',
                     }
                 },
             },
         }
-    </script>
-    
-    <!-- Polyfill for process.env (API Key removed for security/user input) -->
-    <script>
-        window.process = {
-            env: {
-                // API Key is now handled via user input in the UI and LocalStorage
-                API_KEY: '' 
-            }
-        };
     </script>
     
     <style>
@@ -59,7 +52,7 @@
         /* Custom Editor Styles */
         .editor-element { position: absolute; user-select: none; box-sizing: border-box; }
         .editor-element:hover { outline: 1px dashed rgba(255,255,255,0.3); }
-        .editor-element.selected { outline: 2px dashed #3b82f6; cursor: move; } /* z-index handled inline now */
+        .editor-element.selected { outline: 2px dashed #3b82f6; cursor: move; }
         .resize-handle {
             position: absolute; bottom: -6px; right: -6px; width: 12px; height: 12px;
             background-color: #3b82f6; border: 2px solid white; border-radius: 50%;
@@ -69,11 +62,11 @@
         
         /* Drag and Drop Visuals */
         .dragging { opacity: 0.5; }
-        .drag-over { border-color: #3b82f6 !important; background-color: #1f2937 !important; }
+        .drag-over { border-top: 2px solid #3b82f6 !important; }
         
-        /* AI Gradient Text */
-        .text-gradient-ai {
-            background: linear-gradient(to right, #60a5fa, #c084fc);
+        /* Gradient Text */
+        .text-gradient-gold {
+            background: linear-gradient(to right, #facc15, #a16207);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
@@ -95,12 +88,10 @@
             FilePlus, Copy, HardDrive, Move, AlignLeft, AlignCenter, AlignRight,
             Palette, MousePointer2, Scaling, Layers, GripVertical,
             Bold, Italic, MinusCircle, CheckCircle, WifiOff, Crop,
-            ArrowUpFromLine, ArrowDownFromLine, Split, Merge, Sparkles, Key, CopyPlus
+            ArrowUpFromLine, ArrowDownFromLine, Split, Merge, Sparkles, Key, CopyPlus,
+            CheckSquare, Square
         } from 'https://esm.sh/lucide-react@0.292.0';
         
-        // Gemini API - Alias Type to GenAIType to avoid conflict with lucide-react Type icon
-        import { GoogleGenAI, Type as GenAIType } from 'https://esm.sh/@google/genai';
-
         // Firebase Imports
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js';
         import { 
@@ -158,7 +149,7 @@
 
         // --- IndexedDB Helpers ---
         const DB_NAME = 'ChurchPresenterDB';
-        const DB_VERSION = 4; // Incremented for offline_bibles
+        const DB_VERSION = 4;
         
         const initDB = () => {
             return new Promise((resolve, reject) => {
@@ -216,7 +207,6 @@
         const getAllOfflineBibles = () => getFromDB('offline_bibles');
 
         // --- Projector Window ---
-        // EDITED: Fixed aspect ratio container (1920x1080) with auto-scaling to ensure exact alignment
         const PROJECTOR_HTML_TEMPLATE = `
             <!DOCTYPE html>
             <html lang="en">
@@ -227,7 +217,6 @@
                 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Merriweather:ital,wght@0,300;0,400;0,700;1,400&family=Oswald:wght@400;700&family=Lato:wght@400;700;900&family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Open+Sans:ital,wght@0,400;0,700;1,400&family=Roboto:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
                 <style>
                     body { margin: 0; padding: 0; overflow: hidden; background-color: #000; height: 100vh; width: 100vw; display: flex; justify-content: center; align-items: center; }
-                    /* Reference 16:9 Canvas (1920x1080) used to ensure strict positional alignment */
                     #slide-view { 
                         width: 1920px; height: 1080px; 
                         position: relative; 
@@ -360,9 +349,11 @@
             const [isSavingProgram, setIsSavingProgram] = useState(false);
             const [editingProgramItemIndex, setEditingProgramItemIndex] = useState(null);
             const [tempProgramEditText, setTempProgramEditText] = useState('');
+            
+            // Multi-Select Program State
+            const [selectedProgramIndices, setSelectedProgramIndices] = useState([]); // Array of indices
 
             // Program Drag and Drop
-            const [draggedItemIndex, setDraggedItemIndex] = useState(null);
             const [dragOverIndex, setDragOverIndex] = useState(null);
 
             // Bible
@@ -375,16 +366,13 @@
             const [cloudBibles, setCloudBibles] = useState([]); 
             const [offlineBibles, setOfflineBibles] = useState({}); 
 
-            // Notepad State (Persisted in LocalStorage)
+            // Notepad State
             const [bibleNotes, setBibleNotes] = useState(() => localStorage.getItem('cp_bible_notes') || '');
 
-            // AI Bible Search State
-            const [aiSearchTerm, setAiSearchTerm] = useState('');
-            const [aiResults, setAiResults] = useState([]);
-            const [isAiLoading, setIsAiLoading] = useState(false);
-            const chatSession = useRef(null);
-            // API Key State
-            const [apiKey, setApiKey] = useState(() => localStorage.getItem('cp_ai_key') || '');
+            // Local Bible Search State (Replaced AI)
+            const [searchQuery, setSearchQuery] = useState('');
+            const [searchResults, setSearchResults] = useState([]);
+            const [isSearching, setIsSearching] = useState(false);
 
             // Song
             const [songs, setSongs] = useState([]);
@@ -399,13 +387,12 @@
             const [isFetchingLyrics, setIsFetchingLyrics] = useState(false);
             const [fetchStatus, setFetchStatus] = useState('');
             
-            // Custom Slide (Advanced)
+            // Custom Slide
             const [customElements, setCustomElements] = useState([{
                 id: Date.now(),
                 type: 'text',
                 text: "Click to Edit\nDouble click toolbar to format",
                 x: 10, y: 30, w: 80, h: 40, zIndex: 1,
-                // Changed default outline to none
                 styles: { color: '#ffffff', outline: 'none', font: 'sans', align: 'center', fontSize: 60, bold: false, italic: false }
             }]);
             const [selectedElementId, setSelectedElementId] = useState(customElements[0].id);
@@ -414,9 +401,8 @@
             const stageRef = useRef(null);
 
             // Crop Modal State
-            const [cropModalData, setCropModalData] = useState(null); // { id, src, x, y, zoom }
+            const [cropModalData, setCropModalData] = useState(null);
             const [cropTransform, setCropTransform] = useState({ x: 0, y: 0, zoom: 1 });
-            const cropCanvasRef = useRef(null);
             
             const [importStatus, setImportStatus] = useState('');
             const projectorWindowRef = useRef(null);
@@ -451,11 +437,6 @@
                 return () => unsubscribe();
             }, []);
 
-            // Save API Key effect
-            useEffect(() => {
-                localStorage.setItem('cp_ai_key', apiKey);
-            }, [apiKey]);
-
             // --- IndexedDB Sync Helpers ---
             const refreshLocalThemes = async () => {
                 try {
@@ -474,7 +455,7 @@
                 try {
                     const bibles = await getAllOfflineBibles();
                     const bMap = {};
-                    bibles.forEach(b => bMap[b.id] = true);
+                    bibles.forEach(b => bMap[b.id] = b); // Store full object to use data for search
                     setOfflineBibles(bMap);
                 } catch(e) { console.error("Error refreshing offline bibles", e); }
             };
@@ -505,7 +486,6 @@
                     win.document.write(PROJECTOR_HTML_TEMPLATE);
                     win.document.close();
                     projectorWindowRef.current = win;
-                    // Trigger initial update after a short delay to ensure DOM is ready
                     setTimeout(() => updateProjector(liveContent), 100);
                 } else { alert("Pop-up blocked!"); }
             };
@@ -514,14 +494,12 @@
                 const win = projectorWindowRef.current;
                 if (!win || win.closed) return;
                 const doc = win.document;
-                const container = doc.getElementById('slide-view'); // Fixed targeting
+                const container = doc.getElementById('slide-view'); 
                 const body = doc.body;
                 if (!container) return; 
 
-                // Force scale update
                 if (win.fitSlide) win.fitSlide();
 
-                // EDITED: Apply background to container instead of body to match editor aspect ratio crop
                 if (backgroundImage) {
                     container.style.backgroundImage = `url("${backgroundImage}")`;
                     container.style.backgroundColor = 'transparent';
@@ -620,13 +598,13 @@
 
             const loadProgram = (prog) => {
                 if(confirm(`Load program "${prog.name}"? Current unsaved items will be lost.`)) {
-                    setProgram(prog.items); setProgramName(prog.name); setCurrentProgramId(prog.id);
+                    setProgram(prog.items); setProgramName(prog.name); setCurrentProgramId(prog.id); setSelectedProgramIndices([]);
                 }
             };
             
             const clearProgram = () => {
                 if(program.length > 0 && !confirm("Start a new program? Current list will be cleared.")) return;
-                setProgram([]); setProgramName(''); setCurrentProgramId(null);
+                setProgram([]); setProgramName(''); setCurrentProgramId(null); setSelectedProgramIndices([]);
             };
             
             const deleteProgram = async (id, e) => {
@@ -638,17 +616,17 @@
 
             const addToProgram = (item) => {
                 if (item.type === 'song') {
-                    const groupId = Date.now().toString(); // Generate unique group ID
+                    const groupId = Date.now().toString(); 
                     setProgram(prev => [...prev, {
                         id: groupId, 
                         type: 'program_song_group',
                         title: item.title,
                         fullText: item.fullText,
                         desc: `Song Group: ${item.title}`,
-                        groupId: groupId, // Store Group ID
-                        originalId: item.originalId || item.id // Store Original ID
+                        groupId: groupId, 
+                        originalId: item.originalId || item.id 
                     }]);
-                    alert(`Added "${item.title}" to Program (Group).`);
+                    alert(`Added "${item.title}" to Program.`);
                 } else if (item.type === 'custom') {
                     const clonedElements = JSON.parse(JSON.stringify(item.elements));
                     setProgram(prev => [...prev, { 
@@ -674,9 +652,8 @@
                     text: stanza,
                     title: item.title,
                     desc: `Song: ${item.title} (Slide ${i+1})`,
-                    // Persistence for regrouping and export
                     groupId: item.groupId || item.id, 
-                    fullText: item.fullText, // Kept for reference but not strictly used for regrouping anymore
+                    fullText: item.fullText, 
                     originalId: item.originalId,
                     isFirstSlide: i === 0 
                 }));
@@ -686,39 +663,26 @@
             };
 
             const regroupSong = (groupId) => {
-                // Find all active slides for this group
                 const slides = program.filter(p => p.groupId === groupId);
                 if (slides.length === 0) return;
-                
-                // Recover data from the first slide found
                 const ref = slides[0];
-                
-                // Reconstruct the full text based ONLY on the currently present slides
-                // This ensures deleted slides are permanently removed from the group instance
                 const reconstructedText = slides.map(s => s.text).join('\n\n');
 
                 const groupItem = {
                     id: groupId,
                     type: 'program_song_group',
                     title: ref.title,
-                    fullText: reconstructedText, // Use text from remaining slides
+                    fullText: reconstructedText, 
                     desc: `Song Group: ${ref.title}`,
                     groupId: groupId,
                     originalId: ref.originalId
                 };
-
-                // Find index of first slide in current program to insert group there
                 const firstIndex = program.findIndex(p => p.groupId === groupId);
-                
-                // Remove all individual slides of this group
                 const newProg = program.filter(p => p.groupId !== groupId);
                 
-                // Insert group item at the position of the first slide
-                if (firstIndex >= 0) {
-                    newProg.splice(firstIndex, 0, groupItem);
-                } else {
-                    newProg.push(groupItem); // Fallback
-                }
+                if (firstIndex >= 0) newProg.splice(firstIndex, 0, groupItem);
+                else newProg.push(groupItem);
+                
                 setProgram(newProg);
             };
 
@@ -733,48 +697,90 @@
                 }
             };
             
-            // Drag and Drop Handlers
+            // --- Multi-Select Drag and Drop Logic ---
+            const toggleSelection = (index, ctrlKey, shiftKey) => {
+                if (shiftKey && selectedProgramIndices.length > 0) {
+                    const lastSelected = selectedProgramIndices[selectedProgramIndices.length - 1];
+                    const start = Math.min(lastSelected, index);
+                    const end = Math.max(lastSelected, index);
+                    const range = [];
+                    for (let i = start; i <= end; i++) range.push(i);
+                    // Merge unique
+                    setSelectedProgramIndices([...new Set([...selectedProgramIndices, ...range])].sort((a,b)=>a-b));
+                } else if (ctrlKey) {
+                    if (selectedProgramIndices.includes(index)) {
+                        setSelectedProgramIndices(selectedProgramIndices.filter(i => i !== index));
+                    } else {
+                        setSelectedProgramIndices([...selectedProgramIndices, index].sort((a,b)=>a-b));
+                    }
+                } else {
+                    setSelectedProgramIndices([index]);
+                }
+            };
+
             const handleDragStart = (e, index) => {
-                setDraggedItemIndex(index);
+                let itemsToDrag = [...selectedProgramIndices];
+                // If dragging an item not in current selection, clear selection and select just this one
+                if (!itemsToDrag.includes(index)) {
+                    itemsToDrag = [index];
+                    setSelectedProgramIndices([index]);
+                }
+                
                 e.dataTransfer.effectAllowed = "move";
-                e.dataTransfer.setData("text/plain", index); // Required for Firefox
-                // Optional: set ghost image styling via a class on body or similar if needed
+                // Store sorted indices
+                e.dataTransfer.setData("application/json", JSON.stringify(itemsToDrag.sort((a,b)=>a-b)));
+                
+                // Optional: Ghost image could be set here
             };
 
             const handleDragOver = (e, index) => {
-                e.preventDefault(); // Necessary to allow dropping
+                e.preventDefault(); 
                 e.dataTransfer.dropEffect = "move";
-            };
-            
-            const handleDragEnter = (e, index) => {
-                if (draggedItemIndex !== null && dragOverIndex !== index) {
-                    setDragOverIndex(index);
-                }
-            };
-            
-            const handleDragLeave = (e, index) => {
-                // Optional: clear dragOverIndex if leaving the list entirely
+                setDragOverIndex(index);
             };
 
-            const handleDrop = (e, index) => {
+            const handleDrop = (e, targetIndex) => {
                 e.preventDefault();
-                if (draggedItemIndex === null || draggedItemIndex === index) {
-                     setDraggedItemIndex(null);
-                     setDragOverIndex(null);
-                     return;
-                }
-                
-                const newProg = [...program];
-                const itemToMove = newProg[draggedItemIndex];
-                
-                // Remove from old pos
-                newProg.splice(draggedItemIndex, 1);
-                // Insert at new pos
-                newProg.splice(index, 0, itemToMove);
-                
-                setProgram(newProg);
-                setDraggedItemIndex(null);
                 setDragOverIndex(null);
+                
+                try {
+                    const indicesData = e.dataTransfer.getData("application/json");
+                    if (!indicesData) return;
+                    
+                    const draggedIndices = JSON.parse(indicesData);
+                    if (draggedIndices.includes(targetIndex)) return; // Dropping onto itself/selection
+                    
+                    const newProg = [...program];
+                    
+                    // 1. Extract items to move
+                    const itemsToMove = draggedIndices.map(i => newProg[i]);
+                    
+                    // 2. Remove items from array (iterate backwards to avoid index shift issues during splice)
+                    for (let i = draggedIndices.length - 1; i >= 0; i--) {
+                        newProg.splice(draggedIndices[i], 1);
+                    }
+                    
+                    // 3. Calculate new insertion index
+                    // If target was after some removed items, we need to adjust target index down
+                    let adjustment = 0;
+                    draggedIndices.forEach(idx => {
+                        if (idx < targetIndex) adjustment++;
+                    });
+                    const finalIndex = targetIndex - adjustment;
+                    
+                    // 4. Insert items
+                    newProg.splice(finalIndex, 0, ...itemsToMove);
+                    
+                    setProgram(newProg);
+                    
+                    // 5. Update Selection to new positions
+                    const newSelection = [];
+                    for(let i=0; i<itemsToMove.length; i++) {
+                        newSelection.push(finalIndex + i);
+                    }
+                    setSelectedProgramIndices(newSelection);
+                    
+                } catch (err) { console.error("Drop error", err); }
             };
 
             const editProgramItem = (index) => {
@@ -783,7 +789,6 @@
                     setTempProgramEditText(item.text);
                     setEditingProgramItemIndex(index);
                 } else if (item.type === 'program_custom') {
-                    // Switch to custom tab to edit
                     setCustomElements(JSON.parse(JSON.stringify(item.elements)));
                     setProgramEditMode(index); 
                     setActiveTab('custom');
@@ -836,7 +841,7 @@
                         else throw new Error("Invalid program format");
 
                         if (confirm(`Import program${name ? ` "${name}"` : ""}? Current items will be replaced.`)) {
-                            setProgram(items); setProgramName(name); setCurrentProgramId(null); 
+                            setProgram(items); setProgramName(name); setCurrentProgramId(null); setSelectedProgramIndices([]);
                         }
                     } catch (err) { alert("Import failed: " + err.message); }
                     e.target.value = ''; 
@@ -893,11 +898,11 @@
             const fetchVerse = async (book = bibleBook, chapter = bibleChapter, verse = bibleVerse) => {
                 setLoadingBible(true);
                 // 1. Check Offline
-                const offlineBible = await getBibleFromDB(bibleVersion);
-                if (offlineBible) {
+                const offlineBible = offlineBibles[bibleVersion];
+                if (offlineBible && offlineBible.books) {
                     const cKey = parseInt(chapter).toString();
                     const vKey = parseInt(verse).toString();
-                    if (offlineBible.books && offlineBible.books[book] && offlineBible.books[book][cKey] && offlineBible.books[book][cKey][vKey]) {
+                    if (offlineBible.books[book] && offlineBible.books[book][cKey] && offlineBible.books[book][cKey][vKey]) {
                          setBiblePreview({
                             type: 'bible',
                             text: offlineBible.books[book][cKey][vKey],
@@ -955,60 +960,50 @@
                 alert("Notes saved successfully!");
             };
 
-            // --- AI Logic ---
-            const handleAiSearch = async (isNext = false) => {
-                if (!apiKey) {
-                    alert("Please paste your Google AI Studio API Key in the field below.");
-                    return;
-                }
-                if (!aiSearchTerm.trim()) {
-                    alert("Please enter keywords.");
-                    return;
-                }
-                setIsAiLoading(true);
+            // --- Local Bible Search (Replaces AI) ---
+            const performLocalSearch = () => {
+                if (!searchQuery.trim()) return;
+                setIsSearching(true);
                 
+                // Get Current Active Offline Bible
+                const currentBible = offlineBibles[bibleVersion];
+                if (!currentBible) {
+                    alert("The currently selected Bible version is not downloaded for offline use. Please download it first (click the download icon on the version button) to use offline search.");
+                    setIsSearching(false);
+                    return;
+                }
+
+                const term = searchQuery.toLowerCase();
+                const results = [];
+                const limit = 20;
+                let count = 0;
+
+                // Search Algorithm: Iterate Books -> Chapters -> Verses
+                // This is synchronous but should be fast for standard JSON data size
                 try {
-                    // Initialize chat if needed or if key changed
-                    // For simplicity, we create a new instance if session is null or just reuse 
-                    // To handle key changes, we should probably recreate it
-                    
-                    const ai = new GoogleGenAI({ apiKey: apiKey });
-                    const newChat = ai.chats.create({
-                        model: 'gemini-3-flash-preview',
-                        config: {
-                            responseMimeType: 'application/json',
-                            responseSchema: {
-                                type: GenAIType.ARRAY,
-                                items: {
-                                    type: GenAIType.OBJECT,
-                                    properties: {
-                                        reference: { type: GenAIType.STRING },
-                                        text: { type: GenAIType.STRING },
-                                        version: { type: GenAIType.STRING }
-                                    }
+                    for (const [bName, chapters] of Object.entries(currentBible.books)) {
+                        for (const [cNum, verses] of Object.entries(chapters)) {
+                            for (const [vNum, text] of Object.entries(verses)) {
+                                if (text.toLowerCase().includes(term)) {
+                                    results.push({
+                                        reference: `${bName} ${cNum}:${vNum}`,
+                                        text: text,
+                                        version: currentBible.name
+                                    });
+                                    count++;
+                                    if (count >= limit) break;
                                 }
                             }
+                            if (count >= limit) break;
                         }
-                    });
-                    chatSession.current = newChat;
-                    
-                    const prompt = isNext 
-                        ? `Find 5 distinct bible verses related to the previous topic "${aiSearchTerm}" that haven't been shown yet. Return valid JSON array.`
-                        : `Find 5 bible verses related to: "${aiSearchTerm}". Return a valid JSON array where each object has 'reference', 'text', and 'version'.`;
-                    
-                    const response = await chatSession.current.sendMessage({ message: prompt });
-                    const jsonText = response.text;
-                    const verses = JSON.parse(jsonText);
-                    
-                    if (Array.isArray(verses)) {
-                        setAiResults(verses);
+                        if (count >= limit) break;
                     }
-                } catch (error) {
-                    console.error("AI Error", error);
-                    alert("AI Search failed. Check console or API Key.");
-                } finally {
-                    setIsAiLoading(false);
+                } catch (e) {
+                    console.error("Search error", e);
                 }
+
+                setSearchResults(results);
+                setIsSearching(false);
             };
 
 
@@ -1084,7 +1079,6 @@
                     type: 'text',
                     text: "New Text Box",
                     x: 10, y: 10, w: 30, h: 20, zIndex: customElements.length + 1,
-                    // Default outline set to none
                     styles: { color: '#ffffff', outline: 'none', font: 'sans', align: 'left', fontSize: 60, bold: false, italic: false }
                 };
                 setCustomElements(prev => [...prev, newEl]);
@@ -1116,7 +1110,6 @@
                 newEl.id = Date.now();
                 newEl.x += 2; // Offset slightly so user sees it
                 newEl.y += 2;
-                // Add to top layer
                 const maxZ = Math.max(...customElements.map(e => e.zIndex || 1));
                 newEl.zIndex = maxZ + 1;
                 
@@ -1127,7 +1120,7 @@
             const deleteSelectedElement = () => {
                 if (customElements.length <= 1) { alert("Slide must have at least one element."); return; }
                 setCustomElements(prev => prev.filter(el => el.id !== selectedElementId));
-                setSelectedElementId(customElements[0].id); // Select first fallback
+                setSelectedElementId(customElements[0].id);
             };
 
             const updateSelectedElement = (updates) => {
@@ -1204,11 +1197,7 @@
             };
 
             const performCrop = () => {
-                // Render the cropped view to canvas and export
                 const canvas = document.createElement('canvas');
-                // Use a fixed reasonable resolution or original image logic. 
-                // For this simple implementation, we'll create a 1280x720 canvas (16:9) representing the frame
-                // and draw the zoomed/panned image onto it.
                 canvas.width = 1280;
                 canvas.height = 720;
                 const ctx = canvas.getContext('2d');
@@ -1216,20 +1205,13 @@
                 const img = new Image();
                 img.src = cropModalData.src;
                 img.onload = () => {
-                    // Calculation: The 'frame' is the canvas. The image is drawn with transform.
-                    // Transform origin is center.
                     const { x, y, zoom } = cropTransform;
-                    
-                    // Center of canvas
                     const cx = canvas.width / 2;
                     const cy = canvas.height / 2;
-                    
-                    // Draw params
-                    // Image acts as 'cover' initially. 
                     const scaleFactor = Math.max(canvas.width / img.width, canvas.height / img.height) * zoom;
                     const drawW = img.width * scaleFactor;
                     const drawH = img.height * scaleFactor;
-                    const drawX = cx - (drawW / 2) + x * 5; // Sensitivity adj
+                    const drawX = cx - (drawW / 2) + x * 5;
                     const drawY = cy - (drawH / 2) + y * 5;
 
                     ctx.drawImage(img, drawX, drawY, drawW, drawH);
@@ -1390,7 +1372,7 @@
                 React.createElement('header', { className: "flex items-center justify-between px-6 py-3 bg-gray-950 border-b border-gray-800 shrink-0" }, [
                     React.createElement('div', { className: "flex items-center space-x-3" }, [
                         React.createElement(Monitor, { className: "text-blue-500" }),
-                        React.createElement('h1', { className: "text-xl font-bold tracking-tight" }, [ "ChurchPresenter", React.createElement('span', { className: "text-xs font-normal text-gray-500 ml-2" }, "Pro + AI") ])
+                        React.createElement('h1', { className: "text-xl font-bold tracking-tight" }, [ "ChurchPresenter", React.createElement('span', { className: "text-xs font-normal text-gray-500 ml-2" }, "Pro (Offline)") ])
                     ]),
                     React.createElement('div', { className: "flex items-center space-x-4" }, [
                         user ? React.createElement('div', { className: "flex items-center space-x-2 text-sm text-gray-400" }, [
@@ -1473,19 +1455,21 @@
                                         ])
                                     ])
                                 ]),
+                                React.createElement('div', { className: "text-xs text-gray-500 mb-2 italic" }, "Tip: Hold Ctrl/Cmd or Shift to select multiple items, then drag to move them together."),
                                 React.createElement('ul', { className: "space-y-3" }, program.map((item, idx) => {
                                     const isLive = liveContent && liveContent.id === item.id;
+                                    const isSelected = selectedProgramIndices.includes(idx);
+                                    
                                     return React.createElement('li', { 
                                         key: item.id,
                                         draggable: true,
                                         onDragStart: (e) => handleDragStart(e, idx),
                                         onDragOver: (e) => handleDragOver(e, idx),
                                         onDrop: (e) => handleDrop(e, idx),
-                                        onDragEnter: (e) => handleDragEnter(e, idx),
-                                        onDragLeave: (e) => handleDragLeave(e, idx),
-                                        className: `flex items-center p-4 rounded-xl border transition-all duration-200 group ${
-                                            draggedItemIndex === idx ? 'bg-gray-800 opacity-40 border-dashed border-gray-500' : 
-                                            dragOverIndex === idx ? 'bg-gray-800 border-blue-500' : 
+                                        onClick: (e) => toggleSelection(idx, e.ctrlKey || e.metaKey, e.shiftKey),
+                                        className: `flex items-center p-4 rounded-xl border transition-all duration-200 group relative select-none ${
+                                            isSelected ? 'bg-indigo-900/40 border-indigo-500' :
+                                            dragOverIndex === idx ? 'bg-gray-800 border-t-2 border-t-blue-500' : 
                                             isLive ? 'bg-green-900/20 border-green-500 shadow-[0_0_10px_rgba(34,197,94,0.3)] scale-[1.01]' :
                                             'bg-gray-800 border-gray-700 hover:border-gray-500'
                                         }`
@@ -1493,11 +1477,12 @@
                                         // Drag Handle
                                         React.createElement('div', { className: `mr-3 cursor-move ${isLive ? 'text-green-500' : 'text-gray-500'} hover:text-gray-300` }, React.createElement(GripVertical, { size: 20 })),
                                         
-                                        React.createElement('div', { className: "flex flex-col space-y-1 mr-4" }, [
-                                            React.createElement('button', { onClick: () => moveProgramItem(idx, 'up'), disabled: idx === 0, className: "p-1 hover:bg-gray-700 rounded disabled:opacity-30" }, React.createElement(ArrowUp, { size: 16 })),
-                                            React.createElement('button', { onClick: () => moveProgramItem(idx, 'down'), disabled: idx === program.length - 1, className: "p-1 hover:bg-gray-700 rounded disabled:opacity-30" }, React.createElement(ArrowDown, { size: 16 }))
-                                        ]),
-                                        React.createElement('div', { className: "flex-1 cursor-pointer", onClick: () => item.type !== 'program_song_group' && projectContent(item) }, [
+                                        // Selection Checkbox visual
+                                        React.createElement('div', { className: `mr-4 ${isSelected ? 'text-indigo-400' : 'text-gray-600'}` }, 
+                                            isSelected ? React.createElement(CheckSquare, { size: 20 }) : React.createElement(Square, { size: 20 })
+                                        ),
+
+                                        React.createElement('div', { className: "flex-1 cursor-pointer", onClick: (e) => { e.stopPropagation(); item.type !== 'program_song_group' && projectContent(item); } }, [
                                             React.createElement('div', { className: "flex items-center" }, [
                                                 React.createElement('span', { className: "px-2 py-0.5 rounded text-[10px] uppercase font-bold mr-3 " + (item.type.includes('bible') ? 'bg-yellow-900 text-yellow-200' : item.type.includes('song') ? 'bg-blue-900 text-blue-200' : 'bg-purple-900 text-purple-200') }, item.type.replace('program_', '').replace('_group','')),
                                                 React.createElement('span', { className: "font-medium" }, item.desc || (item.title ? item.title : "Custom Slide")),
@@ -1506,17 +1491,16 @@
                                             React.createElement('div', { className: "text-sm text-gray-400 mt-1 truncate max-w-xl" }, item.text ? item.text.substring(0, 100) + "..." : (item.elements ? item.elements.map(e => e.type === 'image' ? '[Image]' : e.text).join(' ').substring(0, 100) + "..." : (item.type === 'program_song_group' ? 'Song Group (Click breakdown to expand)' : '')))
                                         ]),
                                         React.createElement('div', { className: "flex space-x-2" }, [
-                                            // Show Regroup Button for slides with grouping data
                                             (item.type === 'program_song_slide' && item.groupId && item.fullText) ? 
-                                            React.createElement('button', { onClick: () => regroupSong(item.groupId), className: "p-2 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-200 rounded-lg text-sm font-medium flex items-center mr-2 border border-indigo-900", title: "Regroup into Song" }, React.createElement(Merge, { size: 16 })) 
+                                            React.createElement('button', { onClick: (e) => { e.stopPropagation(); regroupSong(item.groupId); }, className: "p-2 bg-indigo-900/50 hover:bg-indigo-800 text-indigo-200 rounded-lg text-sm font-medium flex items-center mr-2 border border-indigo-900", title: "Regroup into Song" }, React.createElement(Merge, { size: 16 })) 
                                             : null,
 
                                             item.type === 'program_song_group' ? 
-                                            React.createElement('button', { onClick: () => breakdownSong(idx), className: "px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium flex items-center" }, [ React.createElement(Split, { size: 16, className: "mr-2" }), "Breakdown" ])
-                                            : React.createElement('button', { onClick: () => projectContent(item), className: `px-4 py-2 rounded-lg text-sm font-medium flex items-center transition-colors ${isLive ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-green-700 hover:bg-green-600 text-white'}` }, [ React.createElement(Play, { size: 16, className: "mr-2" }), "Live" ]),
+                                            React.createElement('button', { onClick: (e) => { e.stopPropagation(); breakdownSong(idx); }, className: "px-4 py-2 bg-indigo-700 hover:bg-indigo-600 text-white rounded-lg text-sm font-medium flex items-center" }, [ React.createElement(Split, { size: 16, className: "mr-2" }), "Breakdown" ])
+                                            : React.createElement('button', { onClick: (e) => { e.stopPropagation(); projectContent(item); }, className: `px-4 py-2 rounded-lg text-sm font-medium flex items-center transition-colors ${isLive ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-green-700 hover:bg-green-600 text-white'}` }, [ React.createElement(Play, { size: 16, className: "mr-2" }), "Live" ]),
                                             
-                                            item.type !== 'program_song_group' && React.createElement('button', { onClick: () => editProgramItem(idx), className: "p-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-medium", title: "Edit Slide" }, React.createElement(Edit3, { size: 16 })),
-                                            React.createElement('button', { onClick: () => setProgram(p => p.filter((_, i) => i !== idx)), className: "p-2 hover:bg-red-900/30 text-gray-500 hover:text-red-400 rounded-lg" }, React.createElement(X, { size: 20 }))
+                                            item.type !== 'program_song_group' && React.createElement('button', { onClick: (e) => { e.stopPropagation(); editProgramItem(idx); }, className: "p-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-medium", title: "Edit Slide" }, React.createElement(Edit3, { size: 16 })),
+                                            React.createElement('button', { onClick: (e) => { e.stopPropagation(); setProgram(p => p.filter((_, i) => i !== idx)); }, className: "p-2 hover:bg-red-900/30 text-gray-500 hover:text-red-400 rounded-lg" }, React.createElement(X, { size: 20 }))
                                         ])
                                     ])
                                 })
@@ -1566,60 +1550,46 @@
                                     ])
                                 ]),
 
-                                // AI Verse Finder
-                                React.createElement('div', { className: "bg-gray-800/50 rounded-xl p-5 border border-purple-500/30 shadow-lg mt-6" }, [
+                                // Local Offline Search (Replaced AI)
+                                React.createElement('div', { className: "bg-gray-800/50 rounded-xl p-5 border border-yellow-500/30 shadow-lg mt-6" }, [
                                     React.createElement('div', { className: "flex items-center mb-4" }, [
-                                        React.createElement(Wand2, { size: 20, className: "text-purple-400 mr-2" }),
-                                        React.createElement('h3', { className: "text-lg font-bold text-gradient-ai" }, "AI Verse Assistant")
+                                        React.createElement(Database, { size: 20, className: "text-yellow-400 mr-2" }),
+                                        React.createElement('h3', { className: "text-lg font-bold text-gradient-gold" }, "Local Bible Search (Offline)")
                                     ]),
-                                    // New API Key Input
-                                    React.createElement('div', { className: "mb-4" }, [
-                                        React.createElement('label', { className: "text-xs text-gray-400 mb-1 block" }, "Google AI Studio API Key"),
-                                        React.createElement('div', { className: "flex space-x-2" }, [
-                                            React.createElement('div', { className: "relative flex-1" }, [
-                                                React.createElement(Key, { size: 14, className: "absolute left-2.5 top-2.5 text-gray-500" }),
-                                                React.createElement('input', { 
-                                                    type: "password", 
-                                                    value: apiKey, 
-                                                    onChange: (e) => setApiKey(e.target.value), 
-                                                    className: "w-full bg-gray-900 border border-gray-700 rounded p-2 pl-8 text-xs text-white placeholder-gray-600 focus:border-purple-500 outline-none", 
-                                                    placeholder: "Paste your API Key here..." 
-                                                })
-                                            ])
-                                        ])
-                                    ]),
+                                    React.createElement('div', { className: "text-xs text-gray-400 mb-4" }, "Searches the currently selected translation if downloaded."),
+                                    
                                     React.createElement('div', { className: "flex space-x-2 mb-4" }, [
                                         React.createElement('input', { 
                                             type: "text", 
-                                            placeholder: "E.g., hope, strength in hard times, John 3:16 meaning...", 
-                                            value: aiSearchTerm, 
-                                            onChange: (e) => setAiSearchTerm(e.target.value),
-                                            onKeyDown: (e) => e.key === 'Enter' && handleAiSearch(false),
-                                            className: "flex-1 bg-gray-900 border border-gray-700 rounded-lg text-white px-4 py-3 outline-none focus:border-purple-500 transition-colors"
+                                            placeholder: "Enter keyword (e.g., 'hope', 'love')...", 
+                                            value: searchQuery, 
+                                            onChange: (e) => setSearchQuery(e.target.value),
+                                            onKeyDown: (e) => e.key === 'Enter' && performLocalSearch(),
+                                            className: "flex-1 bg-gray-900 border border-gray-700 rounded-lg text-white px-4 py-3 outline-none focus:border-yellow-500 transition-colors"
                                         }),
                                         React.createElement('button', { 
-                                            onClick: () => handleAiSearch(false), 
-                                            disabled: isAiLoading,
-                                            className: "px-6 py-2 bg-purple-700 hover:bg-purple-600 text-white rounded-lg font-medium flex items-center transition-colors shadow-lg disabled:opacity-50"
-                                        }, isAiLoading ? React.createElement(Loader2, { className: "animate-spin" }) : [React.createElement(Sparkles, { size: 18, className: "mr-2" }), "Ask AI"])
+                                            onClick: performLocalSearch, 
+                                            disabled: isSearching,
+                                            className: "px-6 py-2 bg-yellow-700 hover:bg-yellow-600 text-white rounded-lg font-medium flex items-center transition-colors shadow-lg disabled:opacity-50"
+                                        }, isSearching ? React.createElement(Loader2, { className: "animate-spin" }) : [React.createElement(Search, { size: 18, className: "mr-2" }), "Search"])
                                     ]),
                                     
-                                    // AI Results List
-                                    aiResults.length > 0 && React.createElement('div', { className: "space-y-3" }, [
-                                        aiResults.map((verse, idx) => 
+                                    // Search Results List
+                                    searchResults.length > 0 && React.createElement('div', { className: "space-y-3 max-h-96 overflow-y-auto pr-1" }, [
+                                        searchResults.map((verse, idx) => 
                                             React.createElement('div', { 
                                                 key: idx, 
-                                                className: "bg-gray-900 p-4 rounded-lg border border-gray-700 hover:border-purple-500 cursor-pointer transition-colors group relative",
+                                                className: "bg-gray-900 p-4 rounded-lg border border-gray-700 hover:border-yellow-500 cursor-pointer transition-colors group relative",
                                                 onClick: () => projectContent({
                                                     type: 'bible',
                                                     text: verse.text,
                                                     reference: verse.reference,
-                                                    version: verse.version || "AI Generated",
-                                                    desc: `Bible (AI): ${verse.reference}`
+                                                    version: verse.version,
+                                                    desc: `Bible: ${verse.reference}`
                                                 })
                                             }, [
                                                 React.createElement('div', { className: "flex justify-between items-start mb-2" }, [
-                                                    React.createElement('span', { className: "font-bold text-purple-300" }, verse.reference),
+                                                    React.createElement('span', { className: "font-bold text-yellow-300" }, verse.reference),
                                                     React.createElement('span', { className: "text-xs text-gray-500" }, verse.version)
                                                 ]),
                                                 React.createElement('p', { className: "text-sm text-gray-300 font-serif leading-relaxed" }, verse.text),
@@ -1631,7 +1601,7 @@
                                                                 type: 'program_bible',
                                                                 text: verse.text,
                                                                 reference: verse.reference,
-                                                                version: verse.version || "AI",
+                                                                version: verse.version,
                                                                 desc: `Bible: ${verse.reference}`
                                                             });
                                                         },
@@ -1640,16 +1610,12 @@
                                                     React.createElement('button', { className: "p-1.5 bg-green-700 hover:bg-green-600 rounded text-white shadow-sm" }, React.createElement(Monitor, { size: 14 }))
                                                 ])
                                             ])
-                                        ),
-                                        React.createElement('button', { 
-                                            onClick: () => handleAiSearch(true),
-                                            disabled: isAiLoading,
-                                            className: "w-full py-3 mt-2 border border-purple-500/30 text-purple-300 hover:bg-purple-900/20 rounded-lg text-sm flex items-center justify-center transition-colors"
-                                        }, isAiLoading ? React.createElement(Loader2, { size: 16, className: "animate-spin" }) : "Find 5 More Verses")
-                                    ])
+                                        )
+                                    ]),
+                                    searchResults.length === 0 && !isSearching && searchQuery && React.createElement('div', { className: "text-center text-gray-500 py-4" }, "No matches found in currently active bible.")
                                 ]),
 
-                                // Notepad Section - Added
+                                // Notepad Section
                                 React.createElement('div', { className: "bg-gray-800/50 rounded-xl p-5 border border-gray-700 shadow-lg mt-6" }, [
                                     React.createElement('div', { className: "flex items-center justify-between mb-4" }, [
                                         React.createElement('div', { className: "flex items-center" }, [
